@@ -129,7 +129,7 @@
         <div class="value" id="block-height">Block --</div>
         <div class="sub">Mined by <span id="miner" class="accent">—</span></div>
         <div class="bars" id="interval-bars" style="margin-top:10px"></div>
-        <div class="sub">Intervals last 12 (min)</div>
+        <div class="sub">Last 12 intervals (min)</div>
       </section>
 
       <!-- FEES & MEMPOOL GAUGE -->
@@ -170,7 +170,7 @@
 
       <!-- 24H PRICE CHART (WIDE) -->
       <section class="card col-6">
-        <div class="title"><h3>Price — 24h</h3><span class="pill">spark + extremes</span></div>
+        <div class="title"><h3>Price — 24h</h3><span class="pill" id="chart-meta">24h • live</span></div>
         <div id="chart-24h" style="height:180px"></div>
         <div class="row" style="margin-top:8px">
           <span class="pill">Low 24h: <b id="low24">—</b></span>
@@ -196,27 +196,241 @@
     // - Mempool/fees: https://mempool.space/api/v1/fees/recommended and /api/mempool
     // - Latest block: https://mempool.space/api/blocks and /block/{hash}/txs/0 to derive miner (coinbase tag)
 
-    const S = {
+    // ===== API CONFIG (CoinGecko) =====
+const API = {
+  price: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true',
+  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
+  blocks: 'https://mempool.space/api/blocks?limit=13',
+  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
+};
+
+// ===== Miner identification (fallback via coinbase tag) =====
+const POOL_TAGS = [
+  { match: /f2pool/i, name: 'F2Pool' },
+  { match: /antpool/i, name: 'AntPool' },
+  { match: /viabtc/i, name: 'ViaBTC' },
+  { match: /poolin/i, name: 'Poolin' },
+  { match: /btc\.com|btccom/i, name: 'BTC.com' },
+  { match: /binance/i, name: 'Binance Pool' },
+  { match: /carbon/i, name: 'Carbon Negative' },
+  { match: /slush|braiins/i, name: 'Braiins Pool' },
+  { match: /foundry/i, name: 'Foundry USA' },
+  { match: /ocean/i, name: 'Ocean Pool' },
+  { match: /mara|marathon|marapool/i, name: 'Marathon' },
+  { match: /luxor/i, name: 'Luxor' },
+  { match: /ultimus/i, name: 'ULTIMUSPOOL' },
+  { match: /novablock/i, name: 'NovaBlock' },
+  { match: /sigma/i, name: 'SigmaPool' },
+  { match: /spider/i, name: 'SpiderPool' },
+  { match: /tera/i, name: 'TERA Pool' },
+  { match: /okex|okx/i, name: 'OKX Pool' },
+  { match: /kucoin/i, name: 'KuCoin Pool' },
+  { match: /sbi/i, name: 'SBI Crypto' },
+  { match: /btc\.top|btctop/i, name: 'BTC.TOP' },
+  { match: /emcd/i, name: 'EMCD Pool' },
+  { match: /secpool/i, name: 'SECPOOL' },
+  { match: /hz[ _-]?pool/i, name: 'HZ Pool' },
+  { match: /solo\.ckpool/i, name: 'Solo CKPool' },
+  { match: /solopool/i, name: 'Solo Pool' },
+  { match: /bitaxe|\/axe\//i, name: 'Bitaxe Solo Miner' },
+  { match: /node\.pw/i, name: 'Node.PW' },
+  { match: /braiins/i, name: 'Braiins Pool' },
+  { match: /solo/i, name: 'Solo Miner' }
+];
+
+function hexToAscii(hex){
+  if(!hex || typeof hex !== 'string') return '';
+  let out='';
+  for(let i=0;i<hex.length;i+=2){
+    const code = parseInt(hex.substr(i,2), 16);
+    if(!Number.isNaN(code)) out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+function identifyPoolFromCoinbase(text){
+  if(!text) return null;
+  for(const p of POOL_TAGS){
+    if(p.match.test(text)) return p.name;
+  }
+  return null;
+}
+
+const S = {
       priceUSD: 67234,
       priceCAD: 89654,
       change24: +2.84,
       spark: Array.from({length: 40}, (_,i)=> 1 + Math.sin(i/6)*.8 + Math.random()*.5),
-      blockHeight: 903_221,
-      blockAgeMin: 7,
-      miner: "ViaBTC",
-      intervals: Array.from({length:12}, ()=> Math.max(2, Math.round(6 + Math.random()*12))),
+      blockHeight: null,
+      blockAgeMin: null,
+      miner: null,
+      intervals: [],
       fees: {low:4, med:7, high:15, vmb: 85, backlogTx: 178_000, capacityPct: 35},
       hashrate: 612,
       diffDays: 9,
       dominance: 54.2,
       marketCap: 1.33,
-      chart24: Array.from({length: 96}, (_,i)=> 66800 + Math.sin(i/8)*400 + (Math.random()-0.5)*140)
+      chart24: Array.from({length: 96}, (_,i)=> 66800 + Math.sin(i/8)*400 + (Math.random()-0.5)*140),
+      blockHash: null
     };
 
     // ===== HELPER RENDERERS =====
-    const $ = (q)=> document.querySelector(q);
+    // ===== FETCHERS (Price + 24h chart) =====
+let tPrice = null, tChart = null;
+
+async function fetchPriceAndChange(){
+  try{
+    const r = await fetch(API.price, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const b = j.bitcoin;
+    if(!b) throw new Error('No bitcoin object');
+    S.priceUSD = b.usd;
+    S.priceCAD = b.cad;
+    S.change24 = b.usd_24h_change; // percent
+    renderPrice();
+  }catch(err){
+    console.warn('[price] fetch failed:', err);
+  }
+}
+
+async function fetchChart24h(){
+  try{
+    const r = await fetch(API.chart24h, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const prices = (j.prices||[]).map(p=> p[1]);
+    const vols = (j.total_volumes||[]).map(v=> v[1]); // USD volume (since vs_currency=usd)
+    if(prices && prices.length){
+      S.chart24 = prices;
+      // also feed the small sparkline in the price card with the last 40 points
+      const take = Math.min(40, prices.length);
+      S.spark = prices.slice(-take);
+      render24hChart();
+      renderPrice();
+    }
+    if(vols && vols.length){
+      // CoinGecko total_volumes is 24h volume at timestamp; take latest point (USD)
+      S.vol24USD = vols[vols.length-1];
+      // update the pill under the wide chart
+      const vEl = document.getElementById('vol24');
+      if(vEl) vEl.textContent = fmtUSDc(S.vol24USD);
+    }
+  }catch(err){
+    console.warn('[chart24] fetch failed:', err);
+  }
+}
+
+// ===== FETCHER (Latest Block + Intervals) =====
+async function fetchLatestBlocks(){
+  try{
+    const r = await fetch(API.blocks, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const arr = await r.json();
+    if(!Array.isArray(arr) || arr.length === 0) return;
+    const latest = arr[0];
+    const ts = (latest.timestamp ?? latest.time); // mempool.space uses `timestamp`
+    const nowSec = Math.floor(Date.now()/1000);
+    S.blockHeight = latest.height || null;
+    S.blockHash = latest.id || latest.hash || null;
+    if(typeof ts === 'number') {
+      S.blockAgeMin = Math.max(0, Math.floor((nowSec - ts)/60));
+    }
+    // Try to get miner/pool name from extras if present
+    const poolName = latest?.extras?.pool?.name || latest?.extras?.pool || latest?.pool?.name || null;
+    if (poolName) {
+      S.miner = poolName;
+    } else {
+      // Fallback: decode coinbase tag (robust + public API)
+      if (S.blockHash) fetchMinerFromCoinbase(S.blockHash);
+    }
+    // intervals between consecutive blocks (minutes)
+    const times = arr.map(b => (b.timestamp ?? b.time)).filter(t => typeof t === 'number');
+    const ivals = [];
+    for(let i=0;i<times.length-1;i++){
+      const d = Math.abs(times[i] - times[i+1]);
+      ivals.push(Math.max(0, Math.round(d/60)));
+    }
+    S.intervals = ivals.slice(0,12).reverse(); // oldest → newest, newest on the right
+    renderBlock();
+  }catch(err){
+    console.warn('[blocks] fetch failed:', err);
+  }
+}
+
+async function fetchMinerFromExtras(height, hash){
+  try{
+    if(!API.blocksExtras) return; // disabled by default (404 on public mempool.space)
+    const r = await fetch(API.blocksExtras, { headers: { 'accept':'application/json' }});
+    if(r.status === 404) return; // endpoint not available
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const list = await r.json();
+    if(!Array.isArray(list)) return;
+    const match = list.find(b => (b.height === height) || (hash && (b.id === hash || b.hash === hash)));
+    const name = match?.extras?.pool?.name || match?.extras?.pool || null;
+    if(name){ S.miner = name; renderBlock(); }
+  }catch(e){
+    console.debug('[blocks-extras] optional endpoint fetch failed:', e);
+  }
+}
+
+async function fetchMinerFromCoinbase(hash){
+  try {
+    // 1) Try to get the coinbase TXID directly (matches firmware approach)
+    let txid = null;
+    try {
+      const rTxid = await fetch(`https://mempool.space/api/block/${hash}/txid/0`, { headers: { accept: 'text/plain' }});
+      if (rTxid.ok) {
+        txid = (await rTxid.text()).trim().replace(/"/g, '');
+      }
+    } catch (_) { /* ignore & fallback */ }
+
+    // 2) Fetch the coinbase TX
+    let tx = null;
+    if (txid) {
+      const rTx = await fetch(`https://mempool.space/api/tx/${txid}`, { headers: { accept: 'application/json' }});
+      if (!rTx.ok) throw new Error('HTTP ' + rTx.status);
+      tx = await rTx.json();
+    } else {
+      // Fallback: first page of txs; coinbase should be [0]
+      const r = await fetch(`https://mempool.space/api/block/${hash}/txs/0`, { headers: { accept: 'application/json' }});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const arr = await r.json();
+      if (Array.isArray(arr) && arr.length) tx = arr[0];
+    }
+
+    // 3) Decode and match
+    const coinbaseHex = tx?.vin?.[0]?.coinbase || tx?.vin?.[0]?.scriptsig || '';
+    const text = hexToAscii(coinbaseHex);
+    const name = identifyPoolFromCoinbase(text);
+    if (name && !S.miner) { S.miner = name; renderBlock(); }
+
+    // Optional debug:
+    // console.debug('coinbase text preview:', (text || '').slice(0,120));
+
+  } catch(e) {
+    console.warn('[coinbase] decode failed:', e);
+  }
+}
+
+function startBlockLoop(){
+  fetchLatestBlocks();
+  // Blocks don\'t change every second; 30s cadence is fine
+  setInterval(fetchLatestBlocks, 30_000);
+}
+
+function startPriceLoop(){
+  clearInterval(tPrice); clearInterval(tChart);
+  fetchPriceAndChange();
+  fetchChart24h();
+  tPrice = setInterval(fetchPriceAndChange, 30_000);   // 30s cadence
+  tChart = setInterval(fetchChart24h, 120_000);        // 2min cadence
+}
+
+const $ = (q)=> document.querySelector(q);
     const fmt = (n)=> n.toLocaleString(undefined, {maximumFractionDigits:0});
     const fmtUSD = (n)=> n.toLocaleString(undefined, {style:'currency', currency:'USD'});
+    const fmtUSDc = (n)=> new Intl.NumberFormat(undefined, {style:'currency', currency:'USD', notation:'compact', maximumFractionDigits:1}).format(n || 0);
 
     function renderPrice(){
       $('#price').textContent = fmtUSD(S.priceUSD);
@@ -236,11 +450,27 @@
     }
 
     function renderBlock(){
-      $('#block-height').textContent = 'Block ' + fmt(S.blockHeight);
-      $('#block-age').textContent = `age ${S.blockAgeMin}m`;
-      $('#miner').textContent = S.miner;
-      const bars = S.intervals.map(v=> `<div class="bar" style="height:${Math.min(70, v*5)}px"></div>`).join('');
-      $('#interval-bars').innerHTML = bars;
+      // Block height
+      if (typeof S.blockHeight === 'number' && S.blockHeight > 0) {
+        $('#block-height').textContent = 'Block ' + fmt(S.blockHeight);
+      } else {
+        $('#block-height').textContent = 'Block —';
+      }
+      // Block age (minutes)
+      if (typeof S.blockAgeMin === 'number' && S.blockAgeMin >= 0) {
+        $('#block-age').textContent = `age ${S.blockAgeMin}m`;
+      } else {
+        $('#block-age').textContent = 'age —';
+      }
+      // Miner name (pool)
+      $('#miner').textContent = S.miner ? S.miner : '—';
+      // Interval bars (last ~12)
+      const barsEl = $('#interval-bars');
+      barsEl.innerHTML = '';
+      if (Array.isArray(S.intervals) && S.intervals.length) {
+        const html = S.intervals.map(v=> `<div class="bar" style="height:${Math.min(70, v*5)}px"></div>`).join('');
+        barsEl.innerHTML = html;
+      }
     }
 
     function renderMempool(){
@@ -283,7 +513,7 @@
       </svg>`;
       $('#low24').textContent = fmtUSD(min);
       $('#high24').textContent = fmtUSD(max);
-      $('#vol24').textContent = (Math.random()*45+15).toFixed(1) + 'k BTC'; // mock
+      $('#vol24').textContent = S.vol24USD ? fmtUSDc(S.vol24USD) : '—';
     }
 
     // Interval visualizer (center line at 10m)
@@ -321,23 +551,16 @@
       renderAll();
     });
     document.getElementById('refresh').addEventListener('click', ()=>{
-      // In real wiring: fetch APIs and update S.* then renderAll()
-      S.change24 = (Math.random()*6-3);
-      S.priceUSD += Math.round((Math.random()-0.5)*200);
-      S.priceCAD = Math.round(S.priceUSD*1.33);
-      S.spark.shift(); S.spark.push(1 + Math.sin(Math.random()*6)*.8 + Math.random()*.5);
-      S.fees.low = Math.max(1, Math.round(3 + Math.random()*4));
-      S.fees.med = S.fees.low + Math.round(Math.random()*4+2);
-      S.fees.high = S.fees.med + Math.round(Math.random()*10+3);
-      S.fees.vmb = Math.round(60 + Math.random()*140);
-      S.fees.capacityPct = Math.round(Math.random()*100);
-      S.blockAgeMin = Math.round(Math.random()*20);
-      S.intervals = Array.from({length:12}, ()=> Math.max(2, Math.round(6 + Math.random()*12)));
-      renderAll();
-    });
+  // Real fetches
+  fetchPriceAndChange();
+  fetchChart24h();
+  fetchLatestBlocks();
+});
 
     // First paint
     renderAll();
+startPriceLoop();
+startBlockLoop();
 
     // ===== Notes for Wiring =====
     // When integrating with firmware or a server:
