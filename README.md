@@ -18,7 +18,7 @@ Not everyone can (or wants to) buy the hardware. This is the **public, browser-b
 ## What’s inside (v1 HTML mock)
 - `stacksworth_timechain_dashboard.html` — a single page with:
   - **BTC price** (USD, CAD est.), **24h sparkline + range**
-  - **Latest block** number, **age**, **miner name** (placeholder)
+  - **Latest block** number, **age**, **miner name** 
   - **Mempool** backlog, **fee tiers** (low/med/high), **capacity arc**
   - **Block Interval Visualizer** (10-minute target line)
   - **Theme toggle**, **responsive grid**, and mock data you can swap for APIs
@@ -27,9 +27,11 @@ Not everyone can (or wants to) buy the hardware. This is the **public, browser-b
 
 ---
 
-## Quick preview
-1. Download the HTML and open it in your browser.  
-2. Click **Refresh** (simulates new data) and **Theme** (switches accent color).
+## Live demo
+👉 (https://bitcoinmanor.github.io/stacksworth-dashboard/)
+
+1. click the link above and it will open it in your browser.  
+2. Click **Refresh** (simulates new data)  **Accent** (switches accent color) **Mode** (changes light to dark mode)
 
 > For real API calls from a local file, you may need to serve it over `http://` to avoid CORS surprises. Use any static server (examples below).
 
@@ -113,7 +115,7 @@ PRs welcome! Keep changes small and testable. If you’re adding APIs or presets
 ---
 
 ## License
-TBD (suggestion: **MIT**). Add your preferred license file before first release.
+MIT
 
 ---
 
@@ -124,7 +126,7 @@ TBD (suggestion: **MIT**). Add your preferred license file before first release.
 ---
 
 ## Screenshots
-_Add images here once we’ve wired live data and finalized the color tokens._  
+_Adding images here once we’re wired live data and finalized the color tokens._  
 `/assets/screenshot-01.png`  
 `/assets/screenshot-02.png`
 
