@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>STACKSWORTH — Timechain Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0b0f14;          /* deep tech noir */
+      --panel:#0f1720cc;     /* glassy panel */
+      --muted:#94a3b8;       /* slate */
+      --txt:#e2e8f0;         /* light */
+      --accent:#ffa600;      /* cyan neon */
+      --accent-2:#ff42a1;    /* magenta neon */
+      --accent-3:#ffa600;    /* amber */
+      --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+      --glow-color: rgba(255,166,0,.35);
+      --bar1: rgba(255,166,0,.6); --bar2: rgba(255,166,0,.1);
+      --accent-alt:#00f6ff;         /* opposite accent for highlights */
+      --glow-alt-color: rgba(0,246,255,.35);
+      --glow: drop-shadow(0 0 12px var(--glow-color));
+      --radius: 18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:radial-gradient(1200px 800px at 110% -10%, #0c1b2a 0%, transparent 50%),
+              radial-gradient(1200px 800px at -10% 110%, #22112a 0%, transparent 50%),
+              var(--bg);
+      color:var(--txt); font-family:"Chakra Petch", system-ui, sans-serif;
+      letter-spacing:.2px;
+    }
+    /* Light mode overrides */
+    .light{
+      --bg:#f5f7fb;
+      --panel:#ffffffee;
+      --muted:#475569;
+      --txt:#0b1220;
+      --glow-color: rgba(255,166,0,.40);
+      --bar1: rgba(255,166,0,.55); --bar2: rgba(255,166,0,.15);
+    }
+
+    .scanlines:before{
+      content:""; position:fixed; inset:0; pointer-events:none;
+      background: repeating-linear-gradient(
+        to bottom, rgba(255,255,255,.06), rgba(255,255,255,.06) 1px,
+        transparent 1px, transparent 3px
+      ); mix-blend-mode:overlay; opacity:.05; z-index:1
+    }
+    header{
+      position:sticky; top:0; z-index:2; backdrop-filter: blur(10px);
+      background: linear-gradient(90deg, #09121a 0%, transparent 30%, transparent 70%, #120913 100%);
+      border-bottom:1px solid #1f2a37; padding:14px 22px; display:flex; align-items:center; gap:18px
+    }
+    .logo{font-weight:700; font-size:20px; letter-spacing:2px}
+    .badge{padding:4px 10px; border:1px solid #243142; border-radius:999px; color:var(--muted)}
+    .accent{color:var(--accent); filter:var(--glow)}
+    main{padding:20px; max-width:1400px; margin:0 auto}
+    .grid{display:grid; grid-template-columns: repeat(12, 1fr); gap:18px}
+    .card{
+      background:linear-gradient(180deg, rgba(20,25,34,.8), rgba(10,14,20,.6));
+      border:1px solid #1f2a37; border-radius:var(--radius);
+      padding:16px; position:relative; overflow:hidden
+    }
+    .card:after{content:""; position:absolute; inset:0; pointer-events:none;
+      background:radial-gradient(500px 300px at 120% -20%, rgba(0,246,255,.08), transparent 40%),
+                 radial-gradient(500px 300px at -20% 120%, rgba(255,66,161,.08), transparent 40%)}
+    .title{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px}
+    .title h3{margin:0; font-size:14px; text-transform:uppercase; letter-spacing:1.5px; color:#cbd5e1}
+    .value{font-size:32px; font-weight:700; line-height:1}
+    .sub{font-size:12px; color:var(--muted)}
+    .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+    .pill{border:1px solid #243142; padding:6px 10px; border-radius:999px; font-size:12px; color:#cbd5e1}
+    .spark{height:36px; width:100%;}
+
+    /* SVG mini sparkline */
+    .spark svg{width:100%; height:100%}
+    .spark path{stroke:var(--accent); fill:transparent; filter:var(--glow)}
+    /* Use opposite accent for price sparkline and miner name */
+    #card-price .spark polyline{stroke:var(--accent-alt)}
+    #miner.accent{color:var(--accent-alt); filter: drop-shadow(0 0 12px var(--glow-alt-color));}
+
+    /* Circular arc gauge */
+    .gauge{width:120px; height:120px; position:relative}
+    .gauge .ring{position:absolute; inset:0; border-radius:50%;
+      background:
+        conic-gradient(var(--accent) var(--pct), #1f2a37 var(--pct));
+      -webkit-mask: radial-gradient(circle 46px at 50% 50%, transparent 46px, black 47px);
+              mask: radial-gradient(circle 46px at 50% 50%, transparent 46px, black 47px);
+      border:1px solid #223047
+    }
+    .gauge .center{position:absolute; inset:0; display:grid; place-items:center}
+    .gauge .center b{font-family:"JetBrains Mono", monospace; font-size:18px}
+    .gauge .center span{font-size:12px; color:var(--muted)}
+
+    /* Bar strip for block intervals */
+    .bars{display:flex; gap:6px; align-items:flex-end; height:90px}
+    .barwrap{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
+    .barlbl{font-size:10px; color:var(--muted); margin-top:4px; line-height:1}
+    .bars .bar{width:100%; background:linear-gradient(180deg, var(--bar1), var(--bar2));
+      filter:var(--glow); border-radius:6px 6px 2px 2px; border:1px solid #1f2a37}
+    
+    
+    
+
+    /* Footer wide cards */
+    .col-3{grid-column: span 3}
+    .col-4{grid-column: span 4}
+    .col-6{grid-column: span 6}
+    .col-8{grid-column: span 8}
+    .col-12{grid-column: 1 / -1}
+    @media (max-width: 1100px){.col-6,.col-8{grid-column: span 12}}
+    @media (max-width: 800px){.col-3,.col-4{grid-column: span 12}}
+
+    /* Soft neon button */
+    .btn{cursor:pointer; font-size:12px; padding:8px 12px; border-radius:10px;
+      border:1px solid #203043; color:var(--txt); background: #0b1220; transition:.2s}
+    .btn:hover{border-color:#2f4b66; box-shadow:0 0 0 2px rgba(0,246,255,.1)}
+
+    /* Tiny legend dots */
+    .dot{display:inline-block; width:10px; height:10px; border-radius:999px; margin-right:6px}
+  </style>
+</head>
+<body class="scanlines">
+  <header>
+    <div class="logo"><span class="accent">STACKSWORTH</span> // TIMECHAIN</div>
+    <span class="badge">v0.0.2 HTML Preview</span>
+    <span class="badge">Data: live (price, 24h, latest block)</span>
+    <div style="margin-left:auto" class="row">
+      <button class="btn" id="refresh">Refresh</button>
+      <button class="btn" id="theme">Accent</button>
+      <button class="btn" id="mode">Mode</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- BTC PRICE CARD -->
+      <section class="card col-4" id="card-price">
+        <div class="title"><h3>BTC / USD</h3><span class="pill" id="price-change">24h: --</span></div>
+        <div class="value" id="price">$--</div>
+        <div class="sub" id="price-sub">CAD est: --  ·  Last update --</div>
+        <div class="spark" id="sparkline"></div>
+      </section>
+
+      <!-- BLOCK HEIGHT & MINER -->
+      <section class="card col-4">
+        <div class="title"><h3>Latest Block</h3><span class="pill" id="block-age">age --</span></div>
+        <div class="value" id="block-height">Block --</div>
+        <div class="sub">Mined by <span id="miner" class="accent">—</span></div>
+        <div class="bars" id="interval-bars" style="margin-top:10px"></div>
+        <div class="sub">Last 12 intervals (min)</div>
+      </section>
+
+      <!-- FEES & MEMPOOL GAUGE -->
+      <section class="card col-4">
+        <div class="title"><h3>Mempool / Fees</h3><span class="pill" id="tx-backlog">—</span></div>
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div class="row" style="gap:12px">
+              <span class="pill"><span class="dot" style="background:var(--ok)"></span>Low <b id="fee-low">—</b> sat/vB</span>
+              <span class="pill"><span class="dot" style="background:var(--warn)"></span>Med <b id="fee-med">—</b></span>
+              <span class="pill"><span class="dot" style="background:var(--bad)"></span>High <b id="fee-high">—</b></span>
+            </div>
+            <div class="sub" style="margin-top:8px">vMB backlog: <b id="vmb">—</b></div>
+          </div>
+          <div class="gauge" id="mempool-gauge" style="--pct: 35%">
+            <div class="ring"></div>
+            <div class="center"><div>
+              <b id="gauge-pct">35%</b><br/>
+              <span>Capacity</span>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HASHRATE / DIFFICULTY SNAPSHOT -->
+      <section class="card col-3">
+        <div class="title"><h3>Hashrate</h3><span class="pill">est</span></div>
+        <div class="value" id="hashrate">— EH/s</div>
+        <div class="sub">Diff adj in <span id="diff-days">—</span> days</div>
+      </section>
+
+      <!-- DOMINANCE / MARKET CAP SNAPSHOT -->
+      <section class="card col-3">
+        <div class="title"><h3>Market</h3><span class="pill">macro</span></div>
+        <div class="value" id="dominance">—% dom</div>
+        <div class="sub">Cap: <span id="market-cap">—</span></div>
+      </section>
+
+      <!-- 24H PRICE CHART (WIDE) -->
+      <section class="card col-6">
+        <div class="title"><h3>Price — 24h</h3><span class="pill" id="chart-meta">24h • live</span></div>
+        <div id="chart-24h" style="height:180px"></div>
+        <div class="row" style="margin-top:8px">
+          <span class="pill">Low 24h: <b id="low24">—</b></span>
+          <span class="pill">High 24h: <b id="high24">—</b></span>
+          <span class="pill">Vol 24h: <b id="vol24">—</b></span>
+        </div>
+      </section>
+
+      <!-- FOOTER: BLOCK INTERVAL VISUALIZER (WIDE) -->
+      <section class="card col-12">
+        <div class="title"><h3>Block Interval Visualizer</h3><span class="pill">target 10m</span></div>
+        <div id="interval-canvas" style="height:180px"></div>
+        <div class="sub">Each column = minutes between blocks; center line = 10m target.</div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // ===== MOCK DATA LAYER =====
+    // Replace with real fetches later. Endpoints to wire:
+    // - Price: https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true
+    // - 24h chart: https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1
+    // - Mempool/fees: https://mempool.space/api/v1/fees/recommended and /api/mempool
+    // - Latest block: https://mempool.space/api/blocks and /block/{hash}/txs/0 to derive miner (coinbase tag)
+
+    // ===== API CONFIG (CoinGecko) =====
+const API = {
+  price: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true',
+  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
+  blocks: 'https://mempool.space/api/blocks?limit=13',
+  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
+};
+
+// ===== Miner identification (fallback via coinbase tag) =====
+const POOL_TAGS = [
+  { match: /f2pool/i, name: 'F2Pool' },
+  { match: /antpool/i, name: 'AntPool' },
+  { match: /viabtc/i, name: 'ViaBTC' },
+  { match: /poolin/i, name: 'Poolin' },
+  { match: /btc\.com|btccom/i, name: 'BTC.com' },
+  { match: /binance/i, name: 'Binance Pool' },
+  { match: /carbon/i, name: 'Carbon Negative' },
+  { match: /slush|braiins/i, name: 'Braiins Pool' },
+  { match: /foundry/i, name: 'Foundry USA' },
+  { match: /ocean/i, name: 'Ocean Pool' },
+  { match: /mara|marathon|marapool/i, name: 'Marathon' },
+  { match: /luxor/i, name: 'Luxor' },
+  { match: /ultimus/i, name: 'ULTIMUSPOOL' },
+  { match: /novablock/i, name: 'NovaBlock' },
+  { match: /sigma/i, name: 'SigmaPool' },
+  { match: /spider/i, name: 'SpiderPool' },
+  { match: /tera/i, name: 'TERA Pool' },
+  { match: /okex|okx/i, name: 'OKX Pool' },
+  { match: /kucoin/i, name: 'KuCoin Pool' },
+  { match: /sbi/i, name: 'SBI Crypto' },
+  { match: /btc\.top|btctop/i, name: 'BTC.TOP' },
+  { match: /emcd/i, name: 'EMCD Pool' },
+  { match: /secpool/i, name: 'SECPOOL' },
+  { match: /hz[ _-]?pool/i, name: 'HZ Pool' },
+  { match: /solo\.ckpool/i, name: 'Solo CKPool' },
+  { match: /solopool/i, name: 'Solo Pool' },
+  { match: /bitaxe|\/axe\//i, name: 'Bitaxe Solo Miner' },
+  { match: /node\.pw/i, name: 'Node.PW' },
+  { match: /braiins/i, name: 'Braiins Pool' },
+  { match: /solo/i, name: 'Solo Miner' }
+];
+
+const MINER_CACHE = {};
+
+function hexToAscii(hex){
+  if(!hex || typeof hex !== 'string') return '';
+  let out='';
+  for(let i=0;i<hex.length;i+=2){
+    const code = parseInt(hex.substr(i,2), 16);
+    if(!Number.isNaN(code)) out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+function identifyPoolFromCoinbase(text){
+  if(!text) return null;
+  for(const p of POOL_TAGS){
+    if(p.match.test(text)) return p.name;
+  }
+  return null;
+}
+
+function codeFromName(name){
+  if(!name) return '';
+  const MAP = {
+    'Foundry USA':'FND','AntPool':'ANT','F2Pool':'F2P','ViaBTC':'VIA','Poolin':'PLN','BTC.com':'BTC',
+    'Binance Pool':'BNZ','Braiins Pool':'BRN','Luxor':'LUX','Marathon':'MAR','OKX Pool':'OKX','KuCoin Pool':'KUC',
+    'SBI Crypto':'SBI','BTC.TOP':'BTCT','EMCD Pool':'EMCD','NovaBlock':'NVB','SigmaPool':'SIG','SpiderPool':'SPD',
+    'TERA Pool':'TER','Ocean Pool':'OCN','SECPOOL':'SEC','HZ Pool':'HZ','Solo CKPool':'CKP','Solo Pool':'SLO',
+    'Solo Miner':'SLO','Carbon Negative':'CRB','ULTIMUSPOOL':'ULT','Node.PW':'NPW','Bitaxe Solo Miner':'BAX'
+  };
+  if(MAP[name]) return MAP[name];
+  const letters = (name.match(/[A-Z0-9]+/gi)||[]).join('');
+  return letters.substring(0,3).toUpperCase();
+}
+
+const S = {
+      priceUSD: 67234,
+      priceCAD: 89654,
+      change24: +2.84,
+      spark: Array.from({length: 40}, (_,i)=> 1 + Math.sin(i/6)*.8 + Math.random()*.5),
+      blockHeight: null,
+      blockAgeMin: null,
+      miner: null,
+      intervals: [],
+      fees: {low:4, med:7, high:15, vmb: 85, backlogTx: 178_000, capacityPct: 35},
+      hashrate: 612,
+      diffDays: 9,
+      dominance: 54.2,
+      marketCap: 1.33,
+      chart24: Array.from({length: 96}, (_,i)=> 66800 + Math.sin(i/8)*400 + (Math.random()-0.5)*140),
+      blockHash: null,
+      blockTsSec: null,
+      intervalMinersFull: [],
+      intervalMinersCode: [],
+      intervalMinerHashes: []
+    };
+
+    // ===== HELPER RENDERERS =====
+    // ===== FETCHERS (Price + 24h chart) =====
+let tPrice = null, tChart = null, tBlock = null, tBlockAge = null;
+
+async function fetchPriceAndChange(){
+  try{
+    const r = await fetch(API.price, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const b = j.bitcoin;
+    if(!b) throw new Error('No bitcoin object');
+    S.priceUSD = b.usd;
+    S.priceCAD = b.cad;
+    S.change24 = b.usd_24h_change; // percent
+    renderPrice();
+  }catch(err){
+    console.warn('[price] fetch failed:', err);
+  }
+}
+
+async function fetchChart24h(){
+  try{
+    const r = await fetch(API.chart24h, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const prices = (j.prices||[]).map(p=> p[1]);
+    const vols = (j.total_volumes||[]).map(v=> v[1]); // USD volume (since vs_currency=usd)
+    if(prices && prices.length){
+      S.chart24 = prices;
+      // also feed the small sparkline in the price card with the last 40 points
+      const take = Math.min(40, prices.length);
+      S.spark = prices.slice(-take);
+      render24hChart();
+      renderPrice();
+    }
+    if(vols && vols.length){
+      // CoinGecko total_volumes is 24h volume at timestamp; take latest point (USD)
+      S.vol24USD = vols[vols.length-1];
+      // update the pill under the wide chart
+      const vEl = document.getElementById('vol24');
+      if(vEl) vEl.textContent = fmtUSDc(S.vol24USD);
+    }
+  }catch(err){
+    console.warn('[chart24] fetch failed:', err);
+  }
+}
+
+// ===== FETCHER (Latest Block + Intervals) =====
+async function fetchLatestBlocks(){
+  try{
+    const r = await fetch(API.blocks, { headers: { 'accept':'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const arr = await r.json();
+    if(!Array.isArray(arr) || arr.length === 0) return;
+    const latest = arr[0];
+    const ts = (latest.timestamp ?? latest.time); // mempool.space uses `timestamp`
+    const nowSec = Math.floor(Date.now()/1000);
+    S.blockHeight = latest.height || null;
+    S.blockHash = latest.id || latest.hash || null;
+    if(typeof ts === 'number') {
+      S.blockAgeMin = Math.max(0, Math.floor((nowSec - ts)/60));
+    }
+    S.blockTsSec = (typeof ts === 'number') ? ts : null;
+    tickBlockAge();
+    // Try to get miner/pool name from extras if present
+    const poolName = latest?.extras?.pool?.name || latest?.extras?.pool || latest?.pool?.name || null;
+    if (poolName) {
+      S.miner = poolName;
+    } else {
+      // Fallback: decode coinbase tag (robust + public API)
+      if (S.blockHash) fetchMinerFromCoinbase(S.blockHash);
+    }
+    // intervals between consecutive blocks (minutes)
+    const times = arr.map(b => (b.timestamp ?? b.time)).filter(t => typeof t === 'number');
+    const ivals = [];
+    for(let i=0;i<times.length-1;i++){
+      const d = Math.abs(times[i] - times[i+1]);
+      ivals.push(Math.max(0, Math.round(d/60)));
+    }
+    const miners = []; const hashes = [];
+    for(let i=0;i<ivals.length;i++){
+      const blk = arr[i];
+      const nm = blk?.extras?.pool?.name || blk?.extras?.pool || null;
+      miners.push(nm || null);
+      hashes.push(blk?.id || blk?.hash || null);
+    }
+    const newIntervals = ivals.slice(0,12).reverse();
+    const newHashes = hashes.slice(0,12).reverse();
+    const newMiners = miners.slice(0,12).reverse();
+    const prevHashes = Array.isArray(S.intervalMinerHashes) ? S.intervalMinerHashes : [];
+    const same = newHashes.length === prevHashes.length && newHashes.every((h,i)=> h===prevHashes[i]);
+
+    S.intervals = newIntervals;
+
+    if(!same){
+      S.intervalMinerHashes = newHashes;
+      S.intervalMinersFull = newMiners.map((n,i)=> n || (MINER_CACHE[newHashes[i]] || null));
+      S.intervalMinersCode = S.intervalMinersFull.map(n=> n ? codeFromName(n) : '');
+      renderBlock();
+      decodeNextIntervalMiner();
+    } else {
+      renderBlock();
+    }
+  }catch(err){
+    console.warn('[blocks] fetch failed:', err);
+  }
+}
+
+async function fetchMinerFromExtras(height, hash){
+  try{
+    if(!API.blocksExtras) return; // disabled by default (404 on public mempool.space)
+    const r = await fetch(API.blocksExtras, { headers: { 'accept':'application/json' }});
+    if(r.status === 404) return; // endpoint not available
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const list = await r.json();
+    if(!Array.isArray(list)) return;
+    const match = list.find(b => (b.height === height) || (hash && (b.id === hash || b.hash === hash)));
+    const name = match?.extras?.pool?.name || match?.extras?.pool || null;
+    if(name){ S.miner = name; renderBlock(); }
+  }catch(e){
+    console.debug('[blocks-extras] optional endpoint fetch failed:', e);
+  }
+}
+
+async function fetchMinerFromCoinbase(hash){
+  try {
+    let txid = null;
+    try {
+      const rTxid = await fetch(`https://mempool.space/api/block/${hash}/txid/0`, { headers: { accept: 'text/plain' }});
+      if (rTxid.ok) {
+        txid = (await rTxid.text()).trim().replace(/"/g, '');
+      }
+    } catch (_) { }
+    let tx = null;
+    if (txid) {
+      const rTx = await fetch(`https://mempool.space/api/tx/${txid}`, { headers: { accept: 'application/json' }});
+      if (!rTx.ok) throw new Error('HTTP ' + rTx.status);
+      tx = await rTx.json();
+    } else {
+      const r = await fetch(`https://mempool.space/api/block/${hash}/txs/0`, { headers: { accept: 'application/json' }});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const arr = await r.json();
+      if (Array.isArray(arr) && arr.length) tx = arr[0];
+    }
+    const coinbaseHex = tx?.vin?.[0]?.coinbase || tx?.vin?.[0]?.scriptsig || '';
+    const text = hexToAscii(coinbaseHex);
+    const name = identifyPoolFromCoinbase(text);
+    if (name && !S.miner) { S.miner = name; renderBlock(); }
+    if (name && hash) { MINER_CACHE[hash] = name; }
+  } catch(e) {
+    console.warn('[coinbase] decode failed:', e);
+  }
+}
+
+async function fetchNameFromCoinbase(hash){
+  try{
+    let txid = null;
+    try{
+      const rTxid = await fetch(`https://mempool.space/api/block/${hash}/txid/0`, { headers: { accept: 'text/plain' }});
+      if(rTxid.ok){ txid = (await rTxid.text()).trim().replace(/"/g,''); }
+    }catch(_){ }
+    let tx = null;
+    if(txid){
+      const rTx = await fetch(`https://mempool.space/api/tx/${txid}`, { headers: { accept: 'application/json' }});
+      if(!rTx.ok) throw new Error('HTTP '+rTx.status);
+      tx = await rTx.json();
+    } else {
+      const r = await fetch(`https://mempool.space/api/block/${hash}/txs/0`, { headers: { accept: 'application/json' }});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const arr = await r.json();
+      if(Array.isArray(arr) && arr.length) tx = arr[0];
+    }
+    const coinbaseHex = tx?.vin?.[0]?.coinbase || tx?.vin?.[0]?.scriptsig || '';
+    const text = hexToAscii(coinbaseHex);
+    const name = identifyPoolFromCoinbase(text);
+    return name || null;
+  }catch(e){
+    console.warn('[coinbase-name] failed:', e);
+    return null;
+  }
+}
+
+function decodeNextIntervalMiner(){
+  if(!Array.isArray(S.intervalMinerHashes)) return;
+  const idx = S.intervalMinersFull.findIndex((n,i)=> !n && S.intervalMinerHashes[i]);
+  if(idx === -1) return; // all known
+  fetchNameFromCoinbase(S.intervalMinerHashes[idx]).then(name=>{
+    if(name){
+      S.intervalMinersFull[idx] = name;
+      S.intervalMinersCode[idx] = codeFromName(name);
+      const h = S.intervalMinerHashes && S.intervalMinerHashes[idx];
+      if(h) MINER_CACHE[h] = name;
+      renderBlock();
+    }
+    setTimeout(decodeNextIntervalMiner, 400);
+  }).catch(()=> setTimeout(decodeNextIntervalMiner, 400));
+}
+
+// ===== RENDERERS =====
+const $ = (q)=> document.querySelector(q);
+const fmt = (n)=> n.toLocaleString(undefined, {maximumFractionDigits:0});
+const fmtUSD = (n)=> n.toLocaleString(undefined, {style:'currency', currency:'USD'});
+const fmtUSDc = (n)=> new Intl.NumberFormat(undefined, {style:'currency', currency:'USD', notation:'compact', maximumFractionDigits:1}).format(n || 0);
+
+function renderPrice(){
+  $('#price').textContent = fmtUSD(S.priceUSD || 0);
+  const ch = Number(S.change24||0); const s = `${ch>0?'+':''}${ch.toFixed(2)}%`;
+  const pill = $('#price-change');
+  pill.textContent = '24h: '+ s;
+  pill.style.color = ch>=0 ? 'var(--ok)' : 'var(--bad)';
+  $('#price-sub').textContent = `CAD est: ${fmtUSD(S.priceCAD||0).replace('US$','$')}  ·  Last update just now`;
+  if(Array.isArray(S.spark) && S.spark.length>1){
+    const min = Math.min(...S.spark), max = Math.max(...S.spark);
+    const pts = S.spark.map((v,i)=>{
+      const x = (i/(S.spark.length-1))*100; const y = 100 - ((v-min)/(max-min))*100; return `${x},${y}`;
+    }).join(' ');
+    $('#sparkline').innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+      <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none" />
+    </svg>`;
+  }
+}
+
+function renderBlock(){
+  if (typeof S.blockHeight === 'number' && S.blockHeight > 0) {
+    $('#block-height').textContent = 'Block ' + fmt(S.blockHeight);
+  } else {
+    $('#block-height').textContent = 'Block —';
+  }
+  if (typeof S.blockAgeMin === 'number' && S.blockAgeMin >= 0) {
+    $('#block-age').textContent = `age ${S.blockAgeMin}m`;
+  } else {
+    $('#block-age').textContent = 'age —';
+  }
+  $('#miner').textContent = S.miner ? S.miner : '—';
+  const barsEl = $('#interval-bars');
+  barsEl.innerHTML = '';
+  if (Array.isArray(S.intervals) && S.intervals.length) {
+    const html = S.intervals.map((v,idx)=>{
+      const opacity = v < 8 ? 0.35 : (v <= 12 ? 0.55 : 0.75);
+      const h = Math.min(70, v*5);
+      const code = (S.intervalMinersCode && S.intervalMinersCode[idx]) ? S.intervalMinersCode[idx] : '';
+      const full = (S.intervalMinersFull && S.intervalMinersFull[idx]) ? S.intervalMinersFull[idx] : '';
+      return `<div class=\"barwrap\"><div class=\"bar\" title=\"${v}m — ${full || ''}\" style=\"height:${h}px; opacity:${opacity}\"></div><div class=\"barlbl\">${code || '·'}</div></div>`;
+    }).join('');
+    barsEl.innerHTML = html;
+  }
+}
+
+function renderMempool(){
+  $('#fee-low').textContent = S.fees.low ?? '—';
+  $('#fee-med').textContent = S.fees.med ?? '—';
+  $('#fee-high').textContent = S.fees.high ?? '—';
+  $('#vmb').textContent = S.fees.vmb ?? '—';
+  $('#tx-backlog').textContent = S.fees.backlogTx ? fmt(S.fees.backlogTx) + ' tx' : '—';
+  const pct = Math.max(0, Math.min(100, S.fees.capacityPct||0));
+  const gauge = $('#mempool-gauge');
+  gauge.style.setProperty('--pct', pct+'%');
+  $('#gauge-pct').textContent = pct + '%';
+}
+
+function renderHashMarket(){
+  $('#hashrate').textContent = (S.hashrate? fmt(S.hashrate): '—') + ' EH/s';
+  $('#diff-days').textContent = S.diffDays ?? '—';
+  $('#dominance').textContent = (S.dominance? S.dominance.toFixed(1)+'% dom' : '—% dom');
+  $('#market-cap').textContent = S.marketCap? '$'+S.marketCap.toFixed(2)+'T' : '—';
+}
+
+function render24hChart(){
+  const el = document.getElementById('chart-24h');
+  const W = el.clientWidth || 900, H = el.clientHeight || 180;
+  if(!Array.isArray(S.chart24) || S.chart24.length<2){ el.innerHTML=''; return; }
+  const min = Math.min(...S.chart24), max = Math.max(...S.chart24);
+  const pts = S.chart24.map((v,i)=>{
+    const x = (i/(S.chart24.length-1))*W; const y = H - ((v-min)/(max-min))*H; return `${x},${y}`
+  }).join(' ');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%">
+    <defs>
+      <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="${getComputedStyle(document.documentElement).getPropertyValue('--accent')}" stop-opacity=".5"/>
+        <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none"/>
+    <polyline points="${pts} ${W},${H} 0,${H}" fill="url(#g1)" />
+    <line x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" stroke="#1f2a37" stroke-dasharray="4 6"/>
+  </svg>`;
+  document.getElementById('low24').textContent = fmtUSD(min);
+  document.getElementById('high24').textContent = fmtUSD(max);
+  document.getElementById('vol24').textContent = S.vol24USD ? fmtUSDc(S.vol24USD) : '—';
+}
+
+function renderIntervalCanvas(){
+  const el = document.getElementById('interval-canvas');
+  const W = el.clientWidth || 1000, H = el.clientHeight || 180;
+  const bars = (S.intervals && S.intervals.length) ? S.intervals : Array.from({length:48}, ()=>10);
+  const bw = Math.max(4, Math.floor(W / bars.length) - 2);
+  const g = [`<svg viewBox=\"0 0 ${W} ${H}\" width=\"100%\" height=\"100%\">`];
+  const targetY = H - Math.min(H-10, 10*H/20);
+  g.push(`<line x1=\"0\" y1=\"${targetY}\" x2=\"${W}\" y2=\"${targetY}\" stroke=\"#2a3a4f\" stroke-dasharray=\"6 8\"/>`);
+  bars.forEach((m, i)=>{
+    const x = i*(bw+2);
+    const h = Math.min(H-10, m*H/20);
+    const y = H - h;
+    g.push(`<rect x=\"${x}\" y=\"${y}\" width=\"${bw}\" height=\"${h}\" fill=\"rgba(0,246,255,.35)\" stroke=\"#1f2a37\"/>`)
+  });
+  g.push('</svg>');
+  el.innerHTML = g.join('');
+}
+
+function tickBlockAge(){
+  if (typeof S.blockTsSec === 'number') {
+    const nowSec = Math.floor(Date.now()/1000);
+    const mins = Math.max(0, Math.floor((nowSec - S.blockTsSec)/60));
+    if (mins !== S.blockAgeMin) {
+      S.blockAgeMin = mins;
+      const el = document.getElementById('block-age');
+      if (el) el.textContent = `age ${S.blockAgeMin}m`;
+    }
+  }
+}
+
+function startBlockLoop(){
+  fetchLatestBlocks();
+  clearInterval(tBlock); clearInterval(tBlockAge);
+  tBlock = setInterval(fetchLatestBlocks, 30_000);
+  tBlockAge = setInterval(tickBlockAge, 15_000);
+}
+
+function startPriceLoop(){
+  clearInterval(tPrice); clearInterval(tChart);
+  fetchPriceAndChange();
+  fetchChart24h();
+  tPrice = setInterval(fetchPriceAndChange, 30_000);
+  tChart = setInterval(fetchChart24h, 120_000);
+}
+
+function renderAll(){
+      renderPrice();
+      renderBlock();
+      renderMempool();
+      renderHashMarket();
+      render24hChart();
+      renderIntervalCanvas();
+    }
+
+    // Theme toggle (swap accent colors)
+    function setAccent(hex){
+      const r = document.documentElement;
+      r.style.setProperty('--accent', hex);
+      if(hex.toLowerCase()==='#ffa600'){
+        // main = amber, alt = cyan
+        r.style.setProperty('--glow-color','rgba(255,166,0,.35)');
+        r.style.setProperty('--bar1','rgba(255,166,0,.6)');
+        r.style.setProperty('--bar2','rgba(255,166,0,.1)');
+        r.style.setProperty('--accent-alt','#00f6ff');
+        r.style.setProperty('--glow-alt-color','rgba(0,246,255,.35)');
+      } else {
+        // main = cyan, alt = amber
+        r.style.setProperty('--glow-color','rgba(0,246,255,.35)');
+        r.style.setProperty('--bar1','rgba(0,246,255,.6)');
+        r.style.setProperty('--bar2','rgba(0,246,255,.1)');
+        r.style.setProperty('--accent-alt','#ffa600');
+        r.style.setProperty('--glow-alt-color','rgba(255,166,0,.35)');
+      }
+    }
+
+    document.getElementById('theme').addEventListener('click', ()=>{
+      const cur = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().toLowerCase();
+      setAccent(cur === '#ffa600' ? '#00f6ff' : '#ffa600');
+      renderAll();
+    });
+
+    document.getElementById('mode').addEventListener('click', ()=>{
+      document.documentElement.classList.toggle('light');
+      renderAll();
+    });
+    document.getElementById('refresh').addEventListener('click', ()=>{
+  // Real fetches
+  fetchPriceAndChange();
+  fetchChart24h();
+  fetchLatestBlocks();
+});
+
+    // First paint
+    setAccent('#ffa600');
+    renderAll();
+startPriceLoop();
+startBlockLoop();
+
+    // ===== Notes for Wiring =====
+    // When integrating with firmware or a server:
+    // 1) Replace mock S.* values via fetch() to your backend or directly to public APIs.
+    // 2) Keep element IDs stable to minimize UI code changes.
+    // 3) Consider throttling: price(15–30s), fees(60–120s), miner(on new block).
+  </script>
+</body>
+</html>
