@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>STACKSWORTH — Timechain Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0b0f14;          /* deep tech noir */
+      --panel:#0f1720cc;     /* glassy panel */
+      --muted:#94a3b8;       /* slate */
+      --txt:#e2e8f0;         /* light */
+      --accent:#00f6ff;      /* cyan neon */
+      --accent-2:#ff42a1;    /* magenta neon */
+      --accent-3:#ffa600;    /* amber */
+      --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+      --glow: drop-shadow(0 0 12px rgba(0,246,255,.35));
+      --radius: 18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:radial-gradient(1200px 800px at 110% -10%, #0c1b2a 0%, transparent 50%),
+              radial-gradient(1200px 800px at -10% 110%, #22112a 0%, transparent 50%),
+              var(--bg);
+      color:var(--txt); font-family:"Chakra Petch", system-ui, sans-serif;
+      letter-spacing:.2px;
+    }
+    .scanlines:before{
+      content:""; position:fixed; inset:0; pointer-events:none;
+      background: repeating-linear-gradient(
+        to bottom, rgba(255,255,255,.06), rgba(255,255,255,.06) 1px,
+        transparent 1px, transparent 3px
+      ); mix-blend-mode:overlay; opacity:.05; z-index:1
+    }
+    header{
+      position:sticky; top:0; z-index:2; backdrop-filter: blur(10px);
+      background: linear-gradient(90deg, #09121a 0%, transparent 30%, transparent 70%, #120913 100%);
+      border-bottom:1px solid #1f2a37; padding:14px 22px; display:flex; align-items:center; gap:18px
+    }
+    .logo{font-weight:700; font-size:20px; letter-spacing:2px}
+    .badge{padding:4px 10px; border:1px solid #243142; border-radius:999px; color:var(--muted)}
+    .accent{color:var(--accent); filter:var(--glow)}
+    main{padding:20px; max-width:1400px; margin:0 auto}
+    .grid{display:grid; grid-template-columns: repeat(12, 1fr); gap:18px}
+    .card{
+      background:linear-gradient(180deg, rgba(20,25,34,.8), rgba(10,14,20,.6));
+      border:1px solid #1f2a37; border-radius:var(--radius);
+      padding:16px; position:relative; overflow:hidden
+    }
+    .card:after{content:""; position:absolute; inset:0; pointer-events:none;
+      background:radial-gradient(500px 300px at 120% -20%, rgba(0,246,255,.08), transparent 40%),
+                 radial-gradient(500px 300px at -20% 120%, rgba(255,66,161,.08), transparent 40%)}
+    .title{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px}
+    .title h3{margin:0; font-size:14px; text-transform:uppercase; letter-spacing:1.5px; color:#cbd5e1}
+    .value{font-size:32px; font-weight:700; line-height:1}
+    .sub{font-size:12px; color:var(--muted)}
+    .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+    .pill{border:1px solid #243142; padding:6px 10px; border-radius:999px; font-size:12px; color:#cbd5e1}
+    .spark{height:36px; width:100%;}
+
+    /* SVG mini sparkline */
+    .spark svg{width:100%; height:100%}
+    .spark path{stroke:var(--accent); fill:transparent; filter:var(--glow)}
+
+    /* Circular arc gauge */
+    .gauge{width:120px; height:120px; position:relative}
+    .gauge .ring{position:absolute; inset:0; border-radius:50%;
+      background:
+        conic-gradient(var(--accent) var(--pct), #1f2a37 var(--pct));
+      -webkit-mask: radial-gradient(circle 46px at 50% 50%, transparent 46px, black 47px);
+              mask: radial-gradient(circle 46px at 50% 50%, transparent 46px, black 47px);
+      border:1px solid #223047
+    }
+    .gauge .center{position:absolute; inset:0; display:grid; place-items:center}
+    .gauge .center b{font-family:"JetBrains Mono", monospace; font-size:18px}
+    .gauge .center span{font-size:12px; color:var(--muted)}
+
+    /* Bar strip for block intervals */
+    .bars{display:flex; gap:6px; align-items:flex-end; height:70px}
+    .bars .bar{flex:1; background:linear-gradient(180deg, rgba(0,246,255,.6), rgba(0,246,255,.1));
+      filter:var(--glow); border-radius:6px 6px 2px 2px; border:1px solid #1f2a37}
+
+    /* Footer wide cards */
+    .col-3{grid-column: span 3}
+    .col-4{grid-column: span 4}
+    .col-6{grid-column: span 6}
+    .col-8{grid-column: span 8}
+    .col-12{grid-column: 1 / -1}
+    @media (max-width: 1100px){.col-6,.col-8{grid-column: span 12}}
+    @media (max-width: 800px){.col-3,.col-4{grid-column: span 12}}
+
+    /* Soft neon button */
+    .btn{cursor:pointer; font-size:12px; padding:8px 12px; border-radius:10px;
+      border:1px solid #203043; color:var(--txt); background: #0b1220; transition:.2s}
+    .btn:hover{border-color:#2f4b66; box-shadow:0 0 0 2px rgba(0,246,255,.1)}
+
+    /* Tiny legend dots */
+    .dot{display:inline-block; width:10px; height:10px; border-radius:999px; margin-right:6px}
+  </style>
+</head>
+<body class="scanlines">
+  <header>
+    <div class="logo"><span class="accent">STACKSWORTH</span> // TIMECHAIN</div>
+    <span class="badge">v0.0.1 HTML Preview</span>
+    <span class="badge">Data: mock (wire to APIs)</span>
+    <div style="margin-left:auto" class="row">
+      <button class="btn" id="refresh">Refresh</button>
+      <button class="btn" id="theme">Theme</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- BTC PRICE CARD -->
+      <section class="card col-4" id="card-price">
+        <div class="title"><h3>BTC / USD</h3><span class="pill" id="price-change">24h: --</span></div>
+        <div class="value" id="price">$--</div>
+        <div class="sub" id="price-sub">CAD est: --  ·  Last update --</div>
+        <div class="spark" id="sparkline"></div>
+      </section>
+
+      <!-- BLOCK HEIGHT & MINER -->
+      <section class="card col-4">
+        <div class="title"><h3>Latest Block</h3><span class="pill" id="block-age">age --</span></div>
+        <div class="value" id="block-height">Block --</div>
+        <div class="sub">Mined by <span id="miner" class="accent">—</span></div>
+        <div class="bars" id="interval-bars" style="margin-top:10px"></div>
+        <div class="sub">Intervals last 12 (min)</div>
+      </section>
+
+      <!-- FEES & MEMPOOL GAUGE -->
+      <section class="card col-4">
+        <div class="title"><h3>Mempool / Fees</h3><span class="pill" id="tx-backlog">—</span></div>
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div class="row" style="gap:12px">
+              <span class="pill"><span class="dot" style="background:var(--ok)"></span>Low <b id="fee-low">—</b> sat/vB</span>
+              <span class="pill"><span class="dot" style="background:var(--warn)"></span>Med <b id="fee-med">—</b></span>
+              <span class="pill"><span class="dot" style="background:var(--bad)"></span>High <b id="fee-high">—</b></span>
+            </div>
+            <div class="sub" style="margin-top:8px">vMB backlog: <b id="vmb">—</b></div>
+          </div>
+          <div class="gauge" id="mempool-gauge" style="--pct: 35%">
+            <div class="ring"></div>
+            <div class="center"><div>
+              <b id="gauge-pct">35%</b><br/>
+              <span>Capacity</span>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HASHRATE / DIFFICULTY SNAPSHOT -->
+      <section class="card col-3">
+        <div class="title"><h3>Hashrate</h3><span class="pill">est</span></div>
+        <div class="value" id="hashrate">— EH/s</div>
+        <div class="sub">Diff adj in <span id="diff-days">—</span> days</div>
+      </section>
+
+      <!-- DOMINANCE / MARKET CAP SNAPSHOT -->
+      <section class="card col-3">
+        <div class="title"><h3>Market</h3><span class="pill">macro</span></div>
+        <div class="value" id="dominance">—% dom</div>
+        <div class="sub">Cap: <span id="market-cap">—</span></div>
+      </section>
+
+      <!-- 24H PRICE CHART (WIDE) -->
+      <section class="card col-6">
+        <div class="title"><h3>Price — 24h</h3><span class="pill">spark + extremes</span></div>
+        <div id="chart-24h" style="height:180px"></div>
+        <div class="row" style="margin-top:8px">
+          <span class="pill">Low 24h: <b id="low24">—</b></span>
+          <span class="pill">High 24h: <b id="high24">—</b></span>
+          <span class="pill">Vol 24h: <b id="vol24">—</b></span>
+        </div>
+      </section>
+
+      <!-- FOOTER: BLOCK INTERVAL VISUALIZER (WIDE) -->
+      <section class="card col-12">
+        <div class="title"><h3>Block Interval Visualizer</h3><span class="pill">target 10m</span></div>
+        <div id="interval-canvas" style="height:180px"></div>
+        <div class="sub">Each column = minutes between blocks; center line = 10m target.</div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // ===== MOCK DATA LAYER =====
+    // Replace with real fetches later. Endpoints to wire:
+    // - Price: https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true
+    // - 24h chart: https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1
+    // - Mempool/fees: https://mempool.space/api/v1/fees/recommended and /api/mempool
+    // - Latest block: https://mempool.space/api/blocks and /block/{hash}/txs/0 to derive miner (coinbase tag)
+
+    const S = {
+      priceUSD: 67234,
+      priceCAD: 89654,
+      change24: +2.84,
+      spark: Array.from({length: 40}, (_,i)=> 1 + Math.sin(i/6)*.8 + Math.random()*.5),
+      blockHeight: 903_221,
+      blockAgeMin: 7,
+      miner: "ViaBTC",
+      intervals: Array.from({length:12}, ()=> Math.max(2, Math.round(6 + Math.random()*12))),
+      fees: {low:4, med:7, high:15, vmb: 85, backlogTx: 178_000, capacityPct: 35},
+      hashrate: 612,
+      diffDays: 9,
+      dominance: 54.2,
+      marketCap: 1.33,
+      chart24: Array.from({length: 96}, (_,i)=> 66800 + Math.sin(i/8)*400 + (Math.random()-0.5)*140)
+    };
+
+    // ===== HELPER RENDERERS =====
+    const $ = (q)=> document.querySelector(q);
+    const fmt = (n)=> n.toLocaleString(undefined, {maximumFractionDigits:0});
+    const fmtUSD = (n)=> n.toLocaleString(undefined, {style:'currency', currency:'USD'});
+
+    function renderPrice(){
+      $('#price').textContent = fmtUSD(S.priceUSD);
+      const ch = S.change24; const s = `${ch>0?'+':''}${ch.toFixed(2)}%`;
+      $('#price-change').textContent = '24h: '+ s;
+      $('#price-change').style.color = ch>=0 ? 'var(--ok)' : 'var(--bad)';
+      $('#price-sub').textContent = `CAD est: ${fmtUSD(S.priceCAD).replace('US$','$')}  ·  Last update just now`;
+
+      // Sparkline (simple SVG)
+      const min = Math.min(...S.spark), max = Math.max(...S.spark);
+      const pts = S.spark.map((v,i)=>{
+        const x = (i/(S.spark.length-1))*100; const y = 100 - ((v-min)/(max-min))*100; return `${x},${y}`
+      }).join(' ');
+      $('#sparkline').innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none" />
+      </svg>`;
+    }
+
+    function renderBlock(){
+      $('#block-height').textContent = 'Block ' + fmt(S.blockHeight);
+      $('#block-age').textContent = `age ${S.blockAgeMin}m`;
+      $('#miner').textContent = S.miner;
+      const bars = S.intervals.map(v=> `<div class="bar" style="height:${Math.min(70, v*5)}px"></div>`).join('');
+      $('#interval-bars').innerHTML = bars;
+    }
+
+    function renderMempool(){
+      $('#fee-low').textContent = S.fees.low;
+      $('#fee-med').textContent = S.fees.med;
+      $('#fee-high').textContent = S.fees.high;
+      $('#vmb').textContent = S.fees.vmb;
+      $('#tx-backlog').textContent = fmt(S.fees.backlogTx) + ' tx';
+      const pct = Math.max(0, Math.min(100, S.fees.capacityPct));
+      const gauge = $('#mempool-gauge');
+      gauge.style.setProperty('--pct', pct+'%');
+      $('#gauge-pct').textContent = pct + '%';
+    }
+
+    function renderHashMarket(){
+      $('#hashrate').textContent = fmt(S.hashrate) + ' EH/s';
+      $('#diff-days').textContent = S.diffDays;
+      $('#dominance').textContent = S.dominance.toFixed(1) + '% dom';
+      $('#market-cap').textContent = '$' + S.marketCap.toFixed(2) + 'T';
+    }
+
+    // Very lightweight 24h line chart (SVG)
+    function render24hChart(){
+      const el = $('#chart-24h');
+      const W = el.clientWidth || 900, H = el.clientHeight || 180;
+      const min = Math.min(...S.chart24), max = Math.max(...S.chart24);
+      const pts = S.chart24.map((v,i)=>{
+        const x = (i/(S.chart24.length-1))*W; const y = H - ((v-min)/(max-min))*H; return `${x},${y}`
+      }).join(' ');
+      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%">
+        <defs>
+          <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="${getComputedStyle(document.documentElement).getPropertyValue('--accent')}" stop-opacity=".5"/>
+            <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none"/>
+        <polyline points="${pts} ${W},${H} 0,${H}" fill="url(#g1)" />
+        <line x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" stroke="#1f2a37" stroke-dasharray="4 6"/>
+      </svg>`;
+      $('#low24').textContent = fmtUSD(min);
+      $('#high24').textContent = fmtUSD(max);
+      $('#vol24').textContent = (Math.random()*45+15).toFixed(1) + 'k BTC'; // mock
+    }
+
+    // Interval visualizer (center line at 10m)
+    function renderIntervalCanvas(){
+      const el = $('#interval-canvas');
+      const W = el.clientWidth || 1000, H = el.clientHeight || 180;
+      const bars = S.chart24.slice(0,48).map((_,i)=> Math.max(2, Math.round(6 + Math.random()*12)));
+      const bw = Math.max(4, Math.floor(W / bars.length) - 2);
+      const g = [`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%">`];
+      g.push(`<line x1="0" y1="${H-10*H/20}" x2="${W}" y2="${H-10*H/20}" stroke="#2a3a4f" stroke-dasharray="6 8"/>`);
+      bars.forEach((m, i)=>{
+        const x = i*(bw+2);
+        const h = Math.min(H-10, m*H/20);
+        const y = H - h;
+        g.push(`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="rgba(0,246,255,.35)" stroke="#1f2a37"/>`)
+      });
+      g.push('</svg>');
+      el.innerHTML = g.join('');
+    }
+
+    function renderAll(){
+      renderPrice();
+      renderBlock();
+      renderMempool();
+      renderHashMarket();
+      render24hChart();
+      renderIntervalCanvas();
+    }
+
+    // Theme toggle (swap accent colors)
+    document.getElementById('theme').addEventListener('click', ()=>{
+      const r = document.documentElement;
+      const cur = getComputedStyle(r).getPropertyValue('--accent').trim();
+      r.style.setProperty('--accent', cur === '#00f6ff' ? '#ffa600' : '#00f6ff');
+      renderAll();
+    });
+    document.getElementById('refresh').addEventListener('click', ()=>{
+      // In real wiring: fetch APIs and update S.* then renderAll()
+      S.change24 = (Math.random()*6-3);
+      S.priceUSD += Math.round((Math.random()-0.5)*200);
+      S.priceCAD = Math.round(S.priceUSD*1.33);
+      S.spark.shift(); S.spark.push(1 + Math.sin(Math.random()*6)*.8 + Math.random()*.5);
+      S.fees.low = Math.max(1, Math.round(3 + Math.random()*4));
+      S.fees.med = S.fees.low + Math.round(Math.random()*4+2);
+      S.fees.high = S.fees.med + Math.round(Math.random()*10+3);
+      S.fees.vmb = Math.round(60 + Math.random()*140);
+      S.fees.capacityPct = Math.round(Math.random()*100);
+      S.blockAgeMin = Math.round(Math.random()*20);
+      S.intervals = Array.from({length:12}, ()=> Math.max(2, Math.round(6 + Math.random()*12)));
+      renderAll();
+    });
+
+    // First paint
+    renderAll();
+
+    // ===== Notes for Wiring =====
+    // When integrating with firmware or a server:
+    // 1) Replace mock S.* values via fetch() to your backend or directly to public APIs.
+    // 2) Keep element IDs stable to minimize UI code changes.
+    // 3) Consider throttling: price(15–30s), fees(60–120s), miner(on new block).
+  </script>
+</body>
+</html>
