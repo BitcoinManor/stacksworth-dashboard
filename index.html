@@ -122,13 +122,18 @@
 
     /* Tiny legend dots */
     .dot{display:inline-block; width:10px; height:10px; border-radius:999px; margin-right:6px}
+  /* mini btn + bar label tweaks */
+    .btn.mini{padding:4px 8px; font-size:11px}
+    .btn[disabled]{opacity:.45; cursor:default; box-shadow:none}
+    .barlbl b{font-size:10px}
+    .barlbl .ht{font-size:9px; color:var(--muted); opacity:.85; margin-top:2px}
   </style>
 </head>
 <body class="scanlines">
   <header>
     <div class="logo"><span class="accent">STACKSWORTH</span> // TIMECHAIN</div>
-    <span class="badge">v0.0.2 HTML Preview</span>
-    <span class="badge">Data: live (price, 24h, latest block)</span>
+    <span class="badge">v0.0.3 HTML Preview</span>
+    <span class="badge">Data: live (price, 24h, latest block, Block Visualizer)</span>
     <div style="margin-left:auto" class="row">
       <button class="btn" id="refresh">Refresh</button>
       <button class="btn" id="theme">Accent</button>
@@ -152,7 +157,14 @@
         <div class="value" id="block-height">Block --</div>
         <div class="sub">Mined by <span id="miner" class="accent">—</span></div>
         <div class="bars" id="interval-bars" style="margin-top:10px"></div>
-        <div class="sub">Last 12 intervals (min)</div>
+        <div class="row" style="justify-content:space-between; margin-top:6px">
+          <div class="sub">Time between blocks (min)</div>
+          <div class="row" style="gap:6px">
+            <button class="btn mini" id="bars-left">◀</button>
+            <button class="btn mini" id="bars-right">▶</button>
+            <button class="btn mini" id="bars-latest" style="display:none" title="Jump to latest">⏭</button>
+          </div>
+        </div>
       </section>
 
       <!-- FEES & MEMPOOL GAUGE -->
@@ -204,7 +216,7 @@
 
       <!-- FOOTER: BLOCK INTERVAL VISUALIZER (WIDE) -->
       <section class="card col-12">
-        <div class="title"><h3>Block Interval Visualizer</h3><span class="pill">target 10m</span></div>
+        <div class="title"><h3>Block Interval Visualizer</h3><span class="pill">target 10min</span></div>
         <div id="interval-canvas" style="height:180px"></div>
         <div class="sub">Each column = minutes between blocks; center line = 10m target.</div>
       </section>
@@ -226,6 +238,7 @@ const API = {
   blocks: 'https://mempool.space/api/blocks?limit=13',
   blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
 };
+const API_BASE = 'https://mempool.space/api';
 
 // ===== Miner identification (fallback via coinbase tag) =====
 const POOL_TAGS = [
@@ -262,6 +275,8 @@ const POOL_TAGS = [
 ];
 
 const MINER_CACHE = {};
+const DETAILS_CACHE = {}; // hash -> { sizeBytes, txCount }
+const DETAILS_FETCHING = new Set();
 
 function hexToAscii(hex){
   if(!hex || typeof hex !== 'string') return '';
@@ -314,7 +329,10 @@ const S = {
       blockTsSec: null,
       intervalMinersFull: [],
       intervalMinersCode: [],
-      intervalMinerHashes: []
+      intervalMinerHashes: [],
+      intervalHeights: [],
+      barWindow: { start: 0, size: 7 },
+      _blocksCache: []
     };
 
     // ===== HELPER RENDERERS =====
@@ -370,6 +388,7 @@ async function fetchLatestBlocks(){
     const r = await fetch(API.blocks, { headers: { 'accept':'application/json' }});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const arr = await r.json();
+    S._blocksCache = Array.isArray(arr) ? arr.slice() : [];
     if(!Array.isArray(arr) || arr.length === 0) return;
     const latest = arr[0];
     const ts = (latest.timestamp ?? latest.time); // mempool.space uses `timestamp`
@@ -396,12 +415,13 @@ async function fetchLatestBlocks(){
       const d = Math.abs(times[i] - times[i+1]);
       ivals.push(Math.max(0, Math.round(d/60)));
     }
-    const miners = []; const hashes = [];
+    const miners = []; const hashes = []; const heights = [];
     for(let i=0;i<ivals.length;i++){
       const blk = arr[i];
       const nm = blk?.extras?.pool?.name || blk?.extras?.pool || null;
       miners.push(nm || null);
       hashes.push(blk?.id || blk?.hash || null);
+      heights.push(blk?.height || null);
     }
     const newIntervals = ivals.slice(0,12).reverse();
     const newHashes = hashes.slice(0,12).reverse();
@@ -415,10 +435,19 @@ async function fetchLatestBlocks(){
       S.intervalMinerHashes = newHashes;
       S.intervalMinersFull = newMiners.map((n,i)=> n || (MINER_CACHE[newHashes[i]] || null));
       S.intervalMinersCode = S.intervalMinersFull.map(n=> n ? codeFromName(n) : '');
+      S.intervalHeights = heights.slice(0,12).reverse();
       renderBlock();
+      renderIntervalCanvas();
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); }
       decodeNextIntervalMiner();
     } else {
+      // No new block. Keep rendering and continue decoding if any unknowns remain
       renderBlock();
+      renderIntervalCanvas();
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); }
+      if (S.intervalMinersFull && S.intervalMinerHashes && S.intervalMinersFull.some((n,i)=> !n && S.intervalMinerHashes[i])) {
+        decodeNextIntervalMiner();
+      }
     }
   }catch(err){
     console.warn('[blocks] fetch failed:', err);
@@ -510,9 +539,71 @@ function decodeNextIntervalMiner(){
       const h = S.intervalMinerHashes && S.intervalMinerHashes[idx];
       if(h) MINER_CACHE[h] = name;
       renderBlock();
-    }
+  renderIntervalCanvas();
+}
     setTimeout(decodeNextIntervalMiner, 400);
   }).catch(()=> setTimeout(decodeNextIntervalMiner, 400));
+}
+
+// Build intervals + labels from the cached block list (newest→oldest in _blocksCache)
+function rebuildFromCache(){
+  const arr = Array.isArray(S._blocksCache) ? S._blocksCache : [];
+  if (!arr.length) return;
+  // intervals between consecutive blocks (minutes)
+  const times = arr.map(b => (b.timestamp ?? b.time)).filter(t => typeof t === 'number');
+  const ivals = [];
+  for (let i=0;i<times.length-1;i++){ ivals.push(Math.max(0, Math.round(Math.abs(times[i]-times[i+1])/60))); }
+  const miners = []; const hashes = []; const heights = [];
+  for (let i=0;i<ivals.length;i++){
+    const blk = arr[i];
+    const nm = blk?.extras?.pool?.name || blk?.extras?.pool || null;
+    miners.push(nm || null);
+    hashes.push(blk?.id || blk?.hash || null);
+    heights.push(blk?.height || null);
+  }
+  // Oldest → newest for UI
+  S.intervals = ivals.slice().reverse();
+  S.intervalMinerHashes = hashes.slice().reverse();
+  S.intervalHeights = heights.slice().reverse();
+  // Seed miner names from cache or extras
+  S.intervalMinersFull = S.intervalMinerHashes.map((h,idx)=> miners[ivals.length-1-idx] || (MINER_CACHE[h]||null));
+  S.intervalMinersCode = S.intervalMinersFull.map(n=> n ? codeFromName(n) : '');
+  renderBlock();
+  renderIntervalCanvas();
+}
+
+// Fetch one older page (10 blocks before the oldest we have) and extend cache
+async function fetchOlderBlocksPage(){
+  try{
+    const cache = Array.isArray(S._blocksCache) ? S._blocksCache : [];
+    const tail = cache[cache.length-1];
+    const startH = tail?.height ? (tail.height - 1) : null;
+    if (startH == null) return false;
+    const url = `${API_BASE}/blocks/${startH}`;
+    const r = await fetch(url, { headers: { accept:'application/json' }});
+    if(!r.ok) return false;
+    const older = await r.json();
+    if(!Array.isArray(older) || !older.length) return false;
+    cache.push(...older);
+    S._blocksCache = cache;
+    rebuildFromCache();
+    renderIntervalCanvas();
+    renderIntervalCanvas();
+    decodeNextIntervalMiner();
+    return true;
+  }catch(e){ console.warn('[older] fetch failed:', e); return false; }
+}
+
+// Ensure we have at least N intervals for the visualizer by paging older blocks on demand
+async function ensureVisualizerHorizon(n=21){
+  try{
+    let guard = 3; // prevent unbounded paging
+    while(Array.isArray(S.intervals) && S.intervals.length < n && guard-- > 0){
+      const ok = await fetchOlderBlocksPage();
+      if(!ok) break;
+    }
+    renderIntervalCanvas();
+  }catch(e){ console.warn('[ensureVisualizerHorizon] failed:', e); }
 }
 
 // ===== RENDERERS =====
@@ -541,7 +632,7 @@ function renderPrice(){
 
 function renderBlock(){
   if (typeof S.blockHeight === 'number' && S.blockHeight > 0) {
-    $('#block-height').textContent = 'Block ' + fmt(S.blockHeight);
+    $('#block-height').textContent = 'Block ' + String(S.blockHeight ?? '—');
   } else {
     $('#block-height').textContent = 'Block —';
   }
@@ -554,14 +645,34 @@ function renderBlock(){
   const barsEl = $('#interval-bars');
   barsEl.innerHTML = '';
   if (Array.isArray(S.intervals) && S.intervals.length) {
-    const html = S.intervals.map((v,idx)=>{
+    const size = (S.barWindow && S.barWindow.size) ? S.barWindow.size : 7;
+    const total = S.intervals.length;
+    const maxStart = Math.max(0, total - size);
+    const start = Math.min(Math.max((S.barWindow && S.barWindow.start) || 0, 0), maxStart);
+    S.barWindow.start = start;
+    const from = Math.max(0, total - size - start);
+    const to = Math.max(0, total - start);
+    const ints = S.intervals.slice(from, to);
+    const codes = (S.intervalMinersCode||[]).slice(from, to);
+    const fulls = (S.intervalMinersFull||[]).slice(from, to);
+    const heights = (S.intervalHeights||[]).slice(from, to);
+
+    const html = ints.map((v,idx)=>{
       const opacity = v < 8 ? 0.35 : (v <= 12 ? 0.55 : 0.75);
       const h = Math.min(70, v*5);
-      const code = (S.intervalMinersCode && S.intervalMinersCode[idx]) ? S.intervalMinersCode[idx] : '';
-      const full = (S.intervalMinersFull && S.intervalMinersFull[idx]) ? S.intervalMinersFull[idx] : '';
-      return `<div class=\"barwrap\"><div class=\"bar\" title=\"${v}m — ${full || ''}\" style=\"height:${h}px; opacity:${opacity}\"></div><div class=\"barlbl\">${code || '·'}</div></div>`;
+      const code = codes[idx] || '';
+      const full = fulls[idx] || '';
+      const ht = heights[idx] ? fmt(heights[idx]) : '';
+      return `<div class=\"barwrap\"><div class=\"bar\" title=\"${v}m — ${full}\" style=\"height:${h}px; opacity:${opacity}\"></div><div class=\"barlbl\"><b>${code || '·'}</b><div class=\"ht\">${ht}</div></div></div>`;
     }).join('');
     barsEl.innerHTML = html;
+
+    const l = document.getElementById('bars-left');
+    const r = document.getElementById('bars-right');
+    const j = document.getElementById('bars-latest');
+    if (l) l.disabled = false;
+    if (r) r.disabled = (start <= 0);
+    if (j) j.style.display = (start > 0) ? 'inline-block' : 'none';
   }
 }
 
@@ -608,22 +719,116 @@ function render24hChart(){
   document.getElementById('vol24').textContent = S.vol24USD ? fmtUSDc(S.vol24USD) : '—';
 }
 
+function humanBytes(n){
+  if(n == null || isNaN(n)) return '—';
+  const units = ['B','KB','MB','GB'];
+  let i=0, v=n;
+  while(v>=1024 && i<units.length-1){ v/=1024; i++; }
+  return (i<=1 ? v.toFixed(0) : v.toFixed(2)) + ' ' + units[i];
+}
+
+async function fetchBlockDetail(hash){
+  if(!hash || DETAILS_CACHE[hash] || DETAILS_FETCHING.has(hash)) return;
+  DETAILS_FETCHING.add(hash);
+  try{
+    const r = await fetch(`${API_BASE}/block/${hash}`, { headers:{ accept:'application/json' }});
+    if(r.ok){
+      const j = await r.json();
+      const sizeBytes = j?.size ?? null;
+      const txCount = j?.tx_count ?? j?.txCount ?? null;
+      DETAILS_CACHE[hash] = { sizeBytes, txCount };
+      renderIntervalCanvas(); // re-render once data arrives
+    }
+  }catch(e){ console.warn('[detail] fetch failed for', hash, e); }
+  finally{ DETAILS_FETCHING.delete(hash); }
+}
+
 function renderIntervalCanvas(){
   const el = document.getElementById('interval-canvas');
   const W = el.clientWidth || 1000, H = el.clientHeight || 180;
-  const bars = (S.intervals && S.intervals.length) ? S.intervals : Array.from({length:48}, ()=>10);
-  const bw = Math.max(4, Math.floor(W / bars.length) - 2);
+
+  // Determine how many columns can fit while keeping labels readable
+  const IVfull = Array.isArray(S.intervals) ? S.intervals : [];
+  const HHfull = Array.isArray(S.intervalHeights) ? S.intervalHeights : [];
+  const HSfull = Array.isArray(S.intervalMinerHashes) ? S.intervalMinerHashes : [];
+  if(!IVfull.length){ el.innerHTML=''; return; }
+
+  // Colors: match price sparkline (which uses accent-alt)
+  const cs = getComputedStyle(document.documentElement);
+  const alt = (cs.getPropertyValue('--accent-alt') || '#00f6ff').trim();
+  const main = (cs.getPropertyValue('--accent') || '#ffa600').trim();
+
+  // Layout + density
+  const padTop = 10;
+  const labelBand = 34; // two-line band inside each bar
+  const minBar = labelBand + 8; // ensure even smallest bars have room
+  const gap = 4;
+  const minBW = 54; // minimum column width so labels stay readable
+  const maxColsByWidth = Math.max(6, Math.floor((W + gap) / (minBW + gap)));
+  const COLS = Math.min(21, maxColsByWidth, IVfull.length);
+  const IV = IVfull.slice(-COLS);
+  const HH = HHfull.slice(-COLS);
+  const HS = HSfull.slice(-COLS);
+  const bw = Math.max(minBW, Math.floor((W - (COLS-1)*gap) / COLS));
+  const maxM = Math.min(30, Math.max(12, Math.max(...IV))); // clamp scale 12–30m for sanity
+
+  // Build SVG
   const g = [`<svg viewBox=\"0 0 ${W} ${H}\" width=\"100%\" height=\"100%\">`];
-  const targetY = H - Math.min(H-10, 10*H/20);
-  g.push(`<line x1=\"0\" y1=\"${targetY}\" x2=\"${W}\" y2=\"${targetY}\" stroke=\"#2a3a4f\" stroke-dasharray=\"6 8\"/>`);
-  bars.forEach((m, i)=>{
-    const x = i*(bw+2);
-    const h = Math.min(H-10, m*H/20);
+  // Gradient using alt accent
+  g.push(`<defs><linearGradient id=\"vizgrad\" x1=\"0\" x2=\"0\" y1=\"0\" y2=\"1\">`+
+         `<stop offset=\"0%\" stop-color=\"${alt}\" stop-opacity=\".65\"/>`+
+         `<stop offset=\"100%\" stop-color=\"${alt}\" stop-opacity=\".12\"/>`+
+         `</linearGradient></defs>`);
+
+  // 10-min target line
+  const frac10 = Math.sqrt(10 / maxM);
+  const h10 = Math.max(minBar, Math.round(frac10 * (H - padTop - 4)));
+  const y10 = H - h10;
+  g.push(`<line x1="0" y1="${y10}" x2="${W}" y2="${y10}" stroke="${main}" stroke-opacity=".6" stroke-width="1.5" stroke-dasharray="6 6"/>`);
+  
+  
+  // Bars
+  let x = 0;
+  const labelBoxHeight = 22; // px, fixed height for label box
+  for(let i=0;i<IV.length;i++){
+    const m = IV[i];
+    //const frac = Math.max(0, Math.min(1, m / maxM));
+    const frac = Math.sqrt(m / maxM); // square root scale for better visibility
+    const h = Math.max(minBar, Math.round(frac * (H - padTop - 4)));
     const y = H - h;
-    g.push(`<rect x=\"${x}\" y=\"${y}\" width=\"${bw}\" height=\"${h}\" fill=\"rgba(0,246,255,.35)\" stroke=\"#1f2a37\"/>`)
-  });
-  g.push('</svg>');
-  el.innerHTML = g.join('');
+    const hash = HS[i];
+
+    // Try to read details from cached block list first
+    let sizeBytes = null, txCount = null;
+    if (Array.isArray(S._blocksCache) && S._blocksCache.length){
+      const match = S._blocksCache.find(b => (hash && (b.id===hash || b.hash===hash)) || (HH[i] && b.height===HH[i]));
+      if(match){ sizeBytes = match.size ?? null; txCount = match.tx_count ?? match.txCount ?? null; }
+    }
+    const fromCache = DETAILS_CACHE[hash];
+    if(fromCache){ sizeBytes = sizeBytes ?? fromCache.sizeBytes; txCount = txCount ?? fromCache.txCount; }
+    if(hash && (sizeBytes==null || txCount==null)) fetchBlockDetail(hash);
+
+    // Only show block height in the label box for clarity
+    const blockHeight = HH[i] ? String(HH[i]) : '—';
+
+    // ...inside the for loop...
+let sizeLabel = humanBytes(sizeBytes);
+const txLabel = (txCount!=null) ? (txCount).toLocaleString() + ' tx' : '— tx';
+
+const labelY = H - labelBoxHeight;
+
+
+g.push(`<g>
+  <title>${m} min • Block ${blockHeight}\n${sizeLabel} • ${txLabel}</title>
+  <rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="url(#vizgrad)" stroke="#1f2a37"/>
+  <rect x="${x}" y="${labelY}" width="${bw}" height="${labelBoxHeight}" rx="6" fill="rgba(20,25,34,0.82)" stroke="#243142"/>
+  <text x="${x + bw/2}" y="${labelY + 14}" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" fill="#ffffff">${blockHeight}</text>
+</g>`);
+
+    x += bw + gap;
+  }
+  g.push(`</svg>`);
+  el.innerHTML = g.join('\n');
 }
 
 function tickBlockAge(){
@@ -700,17 +905,49 @@ function renderAll(){
   fetchLatestBlocks();
 });
 
-    // First paint
-    setAccent('#ffa600');
-    renderAll();
-startPriceLoop();
-startBlockLoop();
+    // Arrow controls for interval bar window (7 visible out of last 12)
+    (function(){
+      const leftBtn = document.getElementById('bars-left');
+      const rightBtn = document.getElementById('bars-right');
+      if (leftBtn) leftBtn.addEventListener('click', async ()=>{
+        const total = S.intervals.length;
+        const size = (S.barWindow && S.barWindow.size) ? S.barWindow.size : 7;
+        const maxStart = Math.max(0, total - size);
+        const cur = S.barWindow.start || 0;
+        if (cur < maxStart){
+          S.barWindow.start = cur + 1;
+          renderBlock();
+        } else {
+          // At oldest window; try to load older blocks
+          leftBtn.disabled = true;
+          const ok = await fetchOlderBlocksPage();
+          leftBtn.disabled = false;
+          if (ok){
+            const newTotal = S.intervals.length;
+            const newMax = Math.max(0, newTotal - size);
+            S.barWindow.start = Math.min(cur + 1, newMax);
+            renderBlock();
+          }
+        }
+      });
+      if (rightBtn) rightBtn.addEventListener('click', ()=>{
+        S.barWindow.start = Math.max((S.barWindow?.start || 0) - 1, 0);
+        renderBlock();
+      });
+      const jumpBtn = document.getElementById('bars-latest');
+      if (jumpBtn) jumpBtn.addEventListener('click', ()=>{
+        S.barWindow.start = 0;
+        renderBlock();
+      });
+    })();
 
-    // ===== Notes for Wiring =====
-    // When integrating with firmware or a server:
-    // 1) Replace mock S.* values via fetch() to your backend or directly to public APIs.
-    // 2) Keep element IDs stable to minimize UI code changes.
-    // 3) Consider throttling: price(15–30s), fees(60–120s), miner(on new block).
+    // ===== BOOTSTRAP =====
+    setAccent('#ffa600');      // default accent (amber)
+    renderAll();               // first paint
+    startPriceLoop();          // price + 24h chart loops
+    startBlockLoop();          // latest block + age ticker
+    ensureVisualizerHorizon(21); // make sure bottom visualizer has enough history
   </script>
 </body>
 </html>
+
