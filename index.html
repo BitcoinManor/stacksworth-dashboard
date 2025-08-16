@@ -141,7 +141,7 @@
 <body class="scanlines">
   <header>
     <div class="logo"><span class="accent">STACKSWORTH</span> // TIMECHAIN</div>
-    <span class="badge">v0.0.3 HTML Preview</span>
+    <span class="badge">v0.0.4 HTML Preview</span>
     <span class="badge">Data: live (price, 24h, latest block, Block Visualizer)</span>
     <div style="margin-left:auto" class="row">
       <button class="btn" id="refresh">Refresh</button>
@@ -331,7 +331,7 @@ const S = {
       intervals: [],
       fees: {low:4, med:7, high:15, vmb: 85, backlogTx: 178_000, capacityPct: 35},
       hashrate: null,
-      hashrate24hrChange: null,
+      hashrate24hChange: null,
       difficulty: null,
       difficultyChange: null,
       difficultyDaysAgo: null,
@@ -453,13 +453,21 @@ async function fetchLatestBlocks(){
       S.intervalHeights = heights.slice(0,12).reverse();
       renderBlock();
       renderIntervalCanvas();
-      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); }
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
+  // Market/Dominance loop
+  fetchMarketMeta();
+  setInterval(fetchMarketMeta, 120000);
+}
       decodeNextIntervalMiner();
     } else {
       // No new block. Keep rendering and continue decoding if any unknowns remain
       renderBlock();
       renderIntervalCanvas();
-      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); }
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
+  // Market/Dominance loop
+  fetchMarketMeta();
+  setInterval(fetchMarketMeta, 120000);
+}
       if (S.intervalMinersFull && S.intervalMinerHashes && S.intervalMinersFull.some((n,i)=> !n && S.intervalMinerHashes[i])) {
         decodeNextIntervalMiner();
       }
@@ -589,46 +597,9 @@ async function fetchMempoolFees() {
 }
 
 // Fetch Hashrate and Difficulty
-async function fetchHashrateAndDifficulty() {
-  try {
-    // Fetch hashrate (returns { avgHashrate: number, percentChange24h: number })
-    const rHash = await fetch('https://mempool.space/api/v1/mining/hashrate/3d');
-    const hashData = await rHash.json();
 
-    // Fetch difficulty adjustment info
-    const rDiff = await fetch('https://mempool.space/api/v1/difficulty-adjustment');
-    const diffData = await rDiff.json();
+/* removed duplicate fetchHashrateAndDifficulty (consolidated) */
 
-    // Update state
-    S.hashrate = hashData.avgHashrate ?? null;
-    S.hashrate24hChange = hashData.percentChange24h ?? null;
-    S.difficulty = diffData.currentDifficulty ?? null;
-    S.difficultyChange = diffData.difficultyChange ?? null;
-    S.difficultyDaysAgo = diffData.daysSinceAdjustment ?? null;
-
-    
-    // Compute "last adjustment" date label (e.g., "Aug 5")
-    if (S.difficultyDaysAgo != null) {
-      const ms = Date.now() - S.difficultyDaysAgo * 86400 * 1000;
-      S.difficultyLastDate = new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } else {
-      S.difficultyLastDate = null;
-    }
-
-    // Optional: keep a "days until next adjustment" value if the API exposes it
-    const remainingSec = diffData.remainingTime ?? diffData.remaining_time ?? null;
-    if (typeof remainingSec === 'number') {
-      S.diffDays = Math.max(0, Math.round(remainingSec / 86400));
-    } else if ('daysUntilAdjustment' in diffData) {
-      S.diffDays = diffData.daysUntilAdjustment;
-    } else {
-      S.diffDays = null;
-    }
-renderHashMarket();
-  } catch (e) {
-    console.warn('[hashrate/difficulty] fetch failed:', e);
-  }
-}
 
 
 // Build intervals + labels from the cached block list (newest→oldest in _blocksCache)
@@ -692,6 +663,187 @@ async function ensureVisualizerHorizon(n=21){
   }catch(e){ console.warn('[ensureVisualizerHorizon] failed:', e); }
 }
 
+
+// ===== MARKET / DOMINANCE / SUPPLY / ATH =====
+async function fetchMarketMeta(){
+  try{
+    const isFile = (location.protocol === 'file:');
+
+    // Circulating supply (BTC) — blockchain.info returns total satoshis (CORS OK with ?cors=true)
+    const rCirc = await fetch('https://blockchain.info/q/totalbc?cors=true', { headers: { accept:'text/plain' } });
+    if (rCirc.ok) {
+      const satsText = await rCirc.text();
+      const sats = Number(satsText.trim());
+      if (isFinite(sats)) S.circBTC = sats / 1e8;
+    }
+
+    async function loadFromGecko(){
+      // Dominance + global
+      const rGlobal = await fetch('https://api.coingecko.com/api/v3/global', { headers: { accept:'application/json' } });
+      if (rGlobal.ok){
+        const g = await rGlobal.json();
+        const dom = g?.data?.market_cap_percentage?.btc;
+        if (isFinite(dom)) S.dominance = dom;
+      }
+      // Simple price + market cap
+      const rSimple = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true', { headers:{ accept:'application/json' } });
+      if (rSimple.ok){
+        const j = await rSimple.json();
+        const b = j?.bitcoin;
+        if (b){
+          S.priceUSD = b.usd ?? S.priceUSD;
+          S.marketCapUSD = b.usd_market_cap ?? null;
+        }
+      }
+      // ATH info
+      const rAth = await fetch('https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false', { headers:{ accept:'application/json' } });
+      if (rAth.ok){
+        const c = await rAth.json();
+        const md = c?.market_data;
+        if (md){
+          S.athUSD = md?.ath?.usd ?? null;
+          S.athDate = md?.ath_date?.usd ?? null;
+          const p = md?.ath_change_percentage?.usd;
+          if (typeof p === 'number' && isFinite(p)) S.fromAthPct = p;
+        }
+      }
+    }
+
+    async function loadFromPaprikaLore(){
+      // Dominance (Coinlore)
+      const rGlobal = await fetch('https://api.coinlore.net/api/global/?cors=1', { headers: { accept:'application/json' } });
+      if (rGlobal.ok){
+        const g = await rGlobal.json();
+        const dom = g?.[0]?.btc_d ?? g?.btc_d;
+        if (isFinite(dom)) S.dominance = Number(dom);
+        const totalCap = g?.[0]?.total_mcap ?? g?.total_mcap;
+        if (isFinite(totalCap)) S.totalMarketCapUSD = Number(totalCap);
+      }
+
+      // Price/cap/ATH (Coinpaprika)
+      const rTicker = await fetch('https://api.coinpaprika.com/v1/tickers/btc-bitcoin', { headers:{ accept:'application/json' } });
+      if (rTicker.ok){
+        const t = await rTicker.json();
+        const q = t?.quotes?.USD;
+        if (q){
+          S.priceUSD = (typeof q.price === 'number') ? q.price : S.priceUSD;
+          S.marketCapUSD = (typeof q.market_cap === 'number') ? q.market_cap : null;
+        }
+        const ath = (typeof t?.ath_price === 'number') ? t.ath_price : (typeof t?.quotes?.USD?.ath_price === 'number' ? t.quotes.USD.ath_price : null);
+        const athDate = t?.ath_date ?? t?.quotes?.USD?.ath_date ?? null;
+        if (ath != null) S.athUSD = ath;
+        if (athDate) S.athDate = athDate;
+        const pf = t?.quotes?.USD?.percent_from_price_ath;
+        if (typeof pf === 'number' && isFinite(pf)) {
+          S.fromAthPct = pf;
+        } else if (S.athUSD && S.priceUSD) {
+          S.fromAthPct = ((S.priceUSD - S.athUSD) / S.athUSD) * 100;
+        }
+      }
+    }
+
+    if (!isFile) {
+      // Try Gecko first in production; if it throws (CORS/rate limit), fallback
+      try { await loadFromGecko(); }
+      catch (e) { await loadFromPaprikaLore(); }
+    } else {
+      // Local file => use CORS-friendly providers
+      await loadFromPaprikaLore();
+    }
+
+    renderMarket();
+  }catch(e){
+    console.warn('[market] fetch failed:', e);
+  }
+}
+
+function daysAgoStr(iso){
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return '';
+  const d = Math.max(0, Math.floor((Date.now()-t)/86400000));
+  return d+'d ago';
+}
+
+function renderMarket(){
+  // Locate the "Market" card by its title
+  const header = Array.from(document.querySelectorAll('.card .title h3')).find(h => /Market/i.test(h.textContent));
+  const marketCard = header ? header.closest('.card') : null;
+  if (!marketCard) return;
+
+  // Ensure slots
+  let domEl = document.getElementById('dominance');
+  if (!domEl) {
+    domEl = document.createElement('div');
+    domEl.id = 'dominance';
+    domEl.className = 'value';
+    marketCard.appendChild(domEl);
+  }
+  let mcEl = document.getElementById('market-cap');
+  if (!mcEl) {
+    mcEl = document.createElement('div');
+    mcEl.id = 'market-cap';
+    mcEl.className = 'sub';
+    marketCard.appendChild(mcEl);
+  }
+  // Circulating supply row
+  let circEl = document.getElementById('circ-supply');
+  if (!circEl) {
+    circEl = document.createElement('div');
+    circEl.id = 'circ-supply';
+    circEl.className = 'sub';
+    marketCard.appendChild(circEl);
+  }
+  // ATH line and date
+  let athLine = document.getElementById('ath-line');
+  if (!athLine) {
+    athLine = document.createElement('div');
+    athLine.id = 'ath-line';
+    athLine.className = 'sub';
+    marketCard.appendChild(athLine);
+  }
+  let athDate = document.getElementById('ath-date');
+  if (!athDate) {
+    athDate = document.createElement('div');
+    athDate.id = 'ath-date';
+    athDate.className = 'sub';
+    marketCard.appendChild(athDate);
+  }
+
+  // Fill values
+  if (typeof S.dominance === 'number') {
+    domEl.textContent = S.dominance.toFixed(1) + '% DOM';
+  } else {
+    domEl.textContent = '—% DOM';
+  }
+  const cap = S.marketCapUSD;
+  mcEl.textContent = 'Cap: ' + (cap ? new Intl.NumberFormat(undefined, { style:'currency', currency:'USD', notation:'compact', maximumFractionDigits:1 }).format(cap) : '—');
+
+  const circ = (typeof S.circBTC === 'number') ? S.circBTC : null;
+  circEl.textContent = 'Circulating: ' + (circ != null ? circ.toLocaleString(undefined, { maximumFractionDigits:0 }) : '—') + ' / 21,000,000';
+
+  // ATH line: "ATH: $XX,XXX  ▼YY.YY%"
+  const ath = S.athUSD;
+  const fromAth = (typeof S.fromAthPct === 'number') ? S.fromAthPct : null; // negative if below ATH per CoinGecko
+  if (ath) {
+    const pct = (fromAth != null) ? Math.abs(fromAth).toFixed(2) + '%' : '—';
+    const down = (fromAth != null) ? (fromAth < 0) : true; // below ATH => negative
+    const arrow = down ? '▼' : '▲';
+    const color = down ? 'var(--bad)' : 'var(--ok)';
+    athLine.innerHTML = `ATH: <b>${new Intl.NumberFormat(undefined, { style:'currency', currency:'USD' }).format(ath)}</b> <span style="color:${color}">${arrow}${pct}</span>`;
+  } else {
+    athLine.textContent = 'ATH: —';
+  }
+  // Date of ATH with days ago
+  if (S.athDate) {
+    const d = new Date(S.athDate);
+    const label = d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+    athDate.textContent = `${label} (${daysAgoStr(S.athDate)})`;
+  } else {
+    athDate.textContent = '';
+  }
+}
+
 // ===== RENDERERS =====
 const $ = (q)=> document.querySelector(q);
 const fmt = (n)=> n.toLocaleString(undefined, {maximumFractionDigits:0});
@@ -711,7 +863,7 @@ function renderPrice(){
       const x = (i/(S.spark.length-1))*100; const y = 100 - ((v-min)/(max-min))*100; return `${x},${y}`;
     }).join(' ');
     $('#sparkline').innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
-      <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none" />
+      <polyline points="${pts}" stroke-width="3" fill="none" />
     </svg>`;
   }
   if (S.priceUSD && S.priceUSD > 0) {
@@ -789,94 +941,9 @@ function renderMempool(){
 }
 
 
-function renderHashMarket(){
-  // Big hashrate number (center)
-  const valEl = document.getElementById('hashrate');
-  valEl.textContent = (S.hashrate ? fmt(S.hashrate) : '—') + ' EH/s';
 
-  // Ensure a left+center layout wrapper exists
-  const card = valEl.closest('.card');
-  let layout = document.getElementById('hashrate-layout');
-  if (!layout) {
-    layout = document.createElement('div');
-    layout.id = 'hashrate-layout';
-    layout.style.display = 'grid';
-    layout.style.gridTemplateColumns = 'auto 1fr'; // left mini-stack + centered value
-    layout.style.alignItems = 'center';
-    layout.style.columnGap = '12px';
-    // Insert before the current hashrate node and move the value inside
-    card.insertBefore(layout, valEl);
-    layout.appendChild(valEl);
-  }
+/* removed duplicate renderHashMarket (consolidated) */
 
-  // Build (or get) the left mini-stack
-  let left = document.getElementById('difficulty-left');
-  if (!left) {
-    left = document.createElement('div');
-    left.id = 'difficulty-left';
-    left.style.textAlign = 'right';
-    left.style.minWidth = '110px';
-
-    const lastEl = document.createElement('div');
-    lastEl.id = 'difficulty-last-date';
-    lastEl.className = 'sub';
-
-    const pctEl = document.createElement('div');
-    pctEl.id = 'difficulty-change';
-    pctEl.className = 'sub';
-
-    left.appendChild(lastEl);
-    left.appendChild(pctEl);
-    layout.insertBefore(left, valEl);
-  }
-
-  // Line 1: "Last adj: <date>" (or "Xd ago" fallback)
-  const lastEl = document.getElementById('difficulty-last-date');
-  if (S.difficultyLastDate) {
-    lastEl.textContent = 'Last adj: ' + S.difficultyLastDate;
-  } else if (S.difficultyDaysAgo != null) {
-    lastEl.textContent = `Last adj: ${S.difficultyDaysAgo}d ago`;
-  } else {
-    lastEl.textContent = 'Last adj: —';
-  }
-
-  // Line 2: difficulty % change (green/up or red/down)
-  const pctEl = document.getElementById('difficulty-change');
-  const dCh = (typeof S.difficultyChange === 'number') ? S.difficultyChange : null;
-  if (dCh != null) {
-    pctEl.textContent = (dCh > 0 ? '+' : '') + dCh.toFixed(2) + '%';
-    pctEl.style.color = dCh > 0 ? 'var(--ok)' : (dCh < 0 ? 'var(--bad)' : 'var(--muted)');
-  } else {
-    pctEl.textContent = '';
-    pctEl.style.color = 'var(--muted)';
-  }
-
-  // Optional: show hashrate 24h change directly under the big number
-  let hrChangeEl = document.getElementById('hashrate-change');
-  if (!hrChangeEl) {
-    hrChangeEl = document.createElement('div');
-    hrChangeEl.id = 'hashrate-change';
-    hrChangeEl.className = 'sub';
-    valEl.parentNode.insertBefore(hrChangeEl, valEl.nextSibling);
-  }
-  const hrChange = (typeof S.hashrate24hChange === 'number') ? S.hashrate24hChange : null;
-  if (hrChange != null) {
-    hrChangeEl.textContent = (hrChange > 0 ? '+' : '') + hrChange.toFixed(2) + '% (24h)';
-    hrChangeEl.style.color = hrChange > 0 ? 'var(--ok)' : (hrChange < 0 ? 'var(--bad)' : 'var(--muted)');
-  } else {
-    hrChangeEl.textContent = '';
-  }
-
-  // Safely update optional "diff-days" elsewhere if present
-  const dd = document.getElementById('diff-days');
-  if (dd) dd.textContent = S.diffDays ?? '—';
-
-  // Market snapshot (unchanged)
-  const domEl = document.getElementById('dominance');
-  if (domEl) domEl.textContent = (S.dominance ? S.dominance.toFixed(1) + '% dom' : '—% dom');
-  const mcEl = document.getElementById('market-cap');
-  if (mcEl) mcEl.textContent = S.marketCap ? '$' + S.marketCap.toFixed(2) + 'T' : '—';
-}
 
 function render24hChart(){
   const el = document.getElementById('chart-24h');
@@ -1045,6 +1112,40 @@ function startPriceLoop(){
   setInterval(fetchHashrateAndDifficulty, 30000); // update every 30 seconds
 }
 
+// Normalize various hashrate units to EH/s
+function toEH(value, unit) {
+  const n = Number(value);
+  if (!isFinite(n)) return null;
+  const u = (unit || '').toLowerCase();
+  if (u.includes('eh')) return n;         // EH/s
+  if (u.includes('ph')) return n / 1e3;   // PH/s -> EH/s
+  if (u.includes('th')) return n / 1e6;   // TH/s -> EH/s
+  if (u.includes('h/s')) return n / 1e18; // H/s  -> EH/s
+  return n; // assume EH/s if unspecified
+}
+
+function extractHashrate(d) {
+  if (!d) return null;
+  const pick = (o) =>
+    o.avgHashrate ?? o.averageHashrate ??
+    o.currentHashrate ?? o.current_hashrate ??
+    o.hashrate ?? o.avg_hashrate ?? null;
+
+  if (Array.isArray(d)) {
+    for (let i = d.length - 1; i >= 0; i--) {
+      const v = pick(d[i]);
+      if (isFinite(Number(v))) return Number(v);
+    }
+    return null;
+  }
+  if (Array.isArray(d.series)) return extractHashrate(d.series);
+
+  const v = pick(d);
+  return isFinite(Number(v)) ? Number(v) : null;
+}
+
+
+
 function renderAll(){
       renderPrice();
       renderBlock();
@@ -1090,6 +1191,8 @@ function renderAll(){
   fetchPriceAndChange();
   fetchChart24h();
   fetchLatestBlocks();
+  fetchMempoolFees();
+  fetchHashrateAndDifficulty();
 });
 
     // Arrow controls for interval bar window (7 visible out of last 12)
@@ -1133,8 +1236,348 @@ function renderAll(){
     renderAll();               // first paint
     startPriceLoop();          // price + 24h chart loops
     startBlockLoop();          // latest block + age ticker
-    ensureVisualizerHorizon(21); // make sure bottom visualizer has enough history
-  </script>
+    ensureVisualizerHorizon(21); 
+  // Market/Dominance loop
+  fetchMarketMeta();
+  setInterval(fetchMarketMeta, 120000);
+// make sure bottom visualizer has enough history
+  
+/* === CANONICAL OVERRIDES (hashrate + difficulty) === */
+// Normalize various hashrate units to EH/s
+function toEH(value, unit) {
+  const n = Number(value);
+  if (!isFinite(n)) return null;
+  const u = (unit || '').toLowerCase();
+  if (u.includes('eh')) return n;         // EH/s
+  if (u.includes('ph')) return n / 1e3;   // PH/s -> EH/s
+  if (u.includes('th')) return n / 1e6;   // TH/s -> EH/s
+  if (u.includes('h/s')) return n / 1e18; // H/s  -> EH/s
+  return n; // assume EH/s if unspecified
+}
+
+// Be strict: only accept obvious hashrate keys (avoid generic "value"/"h")
+function extractHashrate(d) {
+  if (!d) return null;
+  const pick = (o) =>
+    o.avgHashrate ?? o.averageHashrate ??
+    o.currentHashrate ?? o.current_hashrate ??
+    o.hashrate ?? o.avg_hashrate ?? null;
+
+  if (Array.isArray(d)) {
+    for (let i = d.length - 1; i >= 0; i--) {
+      const v = pick(d[i]);
+      if (isFinite(Number(v))) return Number(v);
+    }
+    return null;
+  }
+  if (Array.isArray(d.series)) return extractHashrate(d.series);
+  const v = pick(d);
+  return isFinite(Number(v)) ? Number(v) : null;
+}
+
+// Robust, single source of truth
+async function fetchHashrateAndDifficulty() {
+
+  const GS = (typeof S !== 'undefined') ? S : (window.S = window.S || {});
+  try {
+    // --- Hashrate (3d) ---
+    const rHash = await fetch('https://mempool.space/api/v1/mining/hashrate/3d', { headers:{accept:'application/json'} });
+    if (!rHash.ok) throw new Error('hashrate HTTP ' + rHash.status);
+    const hashData = await rHash.json();
+
+    function pick(o){
+      return o?.avgHashrate ?? o?.averageHashrate ?? o?.currentHashrate ?? o?.current_hashrate ?? o?.hashrate ?? o?.avg_hashrate ?? null;
+    }
+    let hr = null, series = null;
+    if (Array.isArray(hashData?.series)) series = hashData.series;
+    else if (Array.isArray(hashData)) series = hashData;
+
+    if (series && series.length) {
+      for (let i = series.length - 1; i >= 0; i--) {
+        const v = pick(series[i]);
+        if (isFinite(Number(v))) { hr = Number(v); break; }
+      }
+    } else {
+      const v = pick(hashData);
+      if (isFinite(Number(v))) hr = Number(v);
+    }
+
+    let unit =
+      hashData.unit || hashData.units ||
+      (Array.isArray(hashData?.series) && hashData.series[0]?.unit) ||
+      (Array.isArray(hashData) && hashData[0]?.unit) || null;
+
+    // Infer unit if omitted and magnitude is clearly raw H/s
+    if (!unit && typeof hr === 'number' && isFinite(hr) && hr > 1e12) unit = 'h/s';
+    const hrEH = unit ? toEH(hr, unit) : hr;
+
+    
+    // Compute a true 24h change from the series (prefer timestamps)
+    let pct24 = null;
+    if (series && series.length >= 2) {
+      const getT = (pt)=> {
+        const t = Number(pt?.timestamp ?? pt?.time ?? pt?.t ?? null);
+        if (!isFinite(t)) return null;
+        return t > 1e12 ? Math.round(t/1000) : t;
+      };
+      // latest valid point
+      let idxNow = -1, hrNow = null, tNow = null;
+      for (let i = series.length - 1; i >= 0; i--) {
+        const v = pick(series[i]); const t = getT(series[i]);
+        if (isFinite(Number(v)) && t) { idxNow = i; hrNow = Number(v); tNow = t; break; }
+      }
+      if (idxNow >= 0) {
+        const target = tNow - 86400;
+        // choose the point with the *closest* timestamp to (tNow-86400)
+        let bestIdx = -1, bestDt = Infinity, hrPrev = null;
+        for (let j = idxNow - 1; j >= 0; j--) {
+          const vj = pick(series[j]); const tj = getT(series[j]);
+          if (!isFinite(Number(vj)) || !tj) continue;
+          const dt = Math.abs(tj - target);
+          if (dt < bestDt) { bestDt = dt; bestIdx = j; hrPrev = Number(vj); }
+          if (tj < target && bestDt < 900) break; // stop early if within 15m
+        }
+        if (isFinite(hrNow) && isFinite(hrPrev) && hrPrev !== 0) {
+          const nowEH = toEH(hrNow, unit || 'eh/s');
+          const prevEH = toEH(hrPrev, unit || 'eh/s');
+          pct24 = ((nowEH - prevEH) / prevEH) * 100;
+        }
+      }
+      // Fallback if timestamps missing or failed: estimate cadence and use index shift
+      if (pct24 == null) {
+        let shift = 24; // default guess: hourly
+        // estimate cadence if we have a few timestamps
+        let firstT = null, lastT = null, countT = 0;
+        for (let k = 0; k < series.length; k++) {
+          const tt = getT(series[k]);
+          if (tt) { 
+            if (firstT == null) firstT = tt;
+            lastT = tt; countT++;
+          }
+        }
+        if (firstT != null && lastT != null && countT >= 3) {
+          const cadence = Math.max(1, Math.round((lastT - firstT) / Math.max(1, (countT-1)))); // seconds/step
+          shift = Math.max(1, Math.round(86400 / cadence));
+        } else {
+          // known mempool cadence possibilities: ~30min → 48 steps/day
+          if (series.length >= 48) shift = 48;
+        }
+        const last = series.length - 1;
+        const vNow = pick(series[last]);
+        const vPrev = pick(series[Math.max(0, last - shift)]);
+        if (isFinite(Number(vNow)) && isFinite(Number(vPrev)) && Number(vPrev) !== 0) {
+          const nowEH = toEH(Number(vNow), unit || 'eh/s');
+          const prevEH = toEH(Number(vPrev), unit || 'eh/s');
+          pct24 = ((nowEH - prevEH) / prevEH) * 100;
+        }
+      }
+    } else {
+    
+      pct24 = hashData.percentChange24h ?? hashData.percent_change_24h ?? hashData.changePercent24h ?? null;
+    }
+
+    // --- Difficulty adjustment ---
+    const rDiff = await fetch('https://mempool.space/api/v1/difficulty-adjustment', { headers:{accept:'application/json'} });
+    if (!rDiff.ok) throw new Error('difficulty HTTP ' + rDiff.status);
+    const diffData = await rDiff.json();
+
+    const epochSec = (x)=> {
+      const n = Number(x); if (!isFinite(n)) return null;
+      return n > 1e12 ? Math.round(n/1000) : n;
+    };
+
+    const prevSec =
+      epochSec(diffData.previousRetarget) ??
+      epochSec(diffData.previous_retarget) ??
+      epochSec(diffData.lastAdjustmentTime) ??
+      epochSec(diffData.last_adjustment_time) ??
+      null;
+
+    if (prevSec) {
+      GS.difficultyLastDate = new Date(prevSec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      GS.difficultyDaysAgo = Math.max(0, Math.round((Date.now()/1000 - prevSec) / 86400));
+    } else {
+      const days = Number(diffData.daysSinceAdjustment ?? diffData.days_since_adjustment);
+      if (isFinite(days) && days >= 0 && days <= 40) {
+        GS.difficultyDaysAgo = Math.round(days);
+        GS.difficultyLastDate = null;
+      } else {
+        GS.difficultyDaysAgo = null;
+        GS.difficultyLastDate = null;
+      }
+    }
+
+    // Next adjustment date + days until
+    const remSec = Number(diffData.remainingTime ?? diffData.remaining_time);
+    const remBlocks = Number(diffData.remainingBlocks ?? diffData.remaining_blocks);
+    if (isFinite(remSec) && remSec >= 0) {
+      GS.diffDays = Math.max(0, Math.round(remSec / 86400));
+      GS.nextAdjDate = new Date(Date.now() + remSec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } else if (isFinite(remBlocks) && remBlocks >= 0) {
+      const estSec = remBlocks * 600;
+      GS.diffDays = Math.max(0, Math.round(estSec / 86400));
+      GS.nextAdjDate = new Date(Date.now() + estSec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } else {
+      GS.diffDays = null;
+      GS.nextAdjDate = null;
+    }
+
+    // Epoch number (derived from latest block height if available)
+    if (typeof GS.blockHeight === 'number' && isFinite(GS.blockHeight)) {
+      GS.diffEpoch = Math.floor((GS.blockHeight - 1) / 2016);
+    } else {
+      GS.diffEpoch = null;
+    }
+
+    GS.hashrate = hrEH;
+    GS.hashrate24hChange = (typeof pct24 === 'number' && isFinite(pct24)) ? pct24 : null;
+    GS.difficulty =
+      diffData.currentDifficulty ??
+      diffData.current_difficulty ??
+      diffData.difficulty ??
+      null;
+    GS.difficultyChange =
+      diffData.difficultyChange ??
+      diffData.difficulty_change ??
+      diffData.changePercent ??
+      diffData.change_percent ??
+      null;
+
+    if (typeof renderHashMarket === 'function') renderHashMarket();
+  } catch (e) {
+    console.warn('[hash/diff] fetch failed:', e);
+  }
+
+}
+
+// Single renderer that enforces layout & formatting
+function renderHashMarket(){
+
+  const GS = (typeof S !== 'undefined') ? S : (window.S = window.S || {});
+  const card = document.getElementById('card-hashrate') || document.getElementById('hashrate')?.closest('.card');
+  if (!card) return;
+
+  // Big centered hashrate
+  const valEl = document.getElementById('hashrate');
+  const fmtEH = n => Number(n).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nVal = (typeof GS.hashrate === 'number' && isFinite(GS.hashrate)) ? GS.hashrate : null;
+  valEl.textContent = (nVal != null ? fmtEH(nVal) : '—') + ' EH/s';
+  valEl.style.textAlign = 'center';
+  valEl.style.width = '100%';
+
+  
+  // 24h inline row: ▲/▼x.xx% 24h (centered, immediately under big hashrate)
+  let hrLine = document.getElementById('hashrate-24h-line');
+  if (!hrLine) {
+    hrLine = document.createElement('div');
+    hrLine.id = 'hashrate-24h-line';
+    hrLine.className = 'sub';
+    hrLine.style.textAlign = 'center';
+    valEl.parentNode.insertBefore(hrLine, valEl.nextSibling);
+  }
+  const hrChange = (typeof GS.hashrate24hChange === 'number') ? GS.hashrate24hChange : null;
+  if (hrChange != null) {
+    const up = hrChange > 0, down = hrChange < 0;
+    const arrow = up ? '▲' : (down ? '▼' : '◆');
+    const pct = Math.abs(hrChange).toFixed(2) + '%';
+    const color = up ? 'var(--ok)' : (down ? 'var(--bad)' : 'var(--muted)');
+    hrLine.innerHTML = `<span class="hr-arrow" style="color:${color}">${arrow}${pct}</span> <span class="hr-label" style="color:var(--muted)">24h</span>`;
+  } else {
+    hrLine.textContent = '';
+  }
+
+  // Spacer
+
+  let spacer = document.getElementById('hashrate-diff-spacer');
+  if (!spacer) {
+    spacer = document.createElement('div');
+    spacer.id = 'hashrate-diff-spacer';
+    spacer.style.height = '8px';
+    card.appendChild(spacer);
+  }
+
+  // DIFFICULTY title
+  let diffTitle = document.getElementById('difficulty-title');
+  if (!diffTitle) {
+    diffTitle = document.createElement('div');
+    diffTitle.id = 'difficulty-title';
+    diffTitle.className = 'title';
+    diffTitle.innerHTML = '<h3>Difficulty</h3>';
+    card.appendChild(diffTitle);
+  }
+
+  // Difficulty Epoch
+  let epochEl = document.getElementById('difficulty-epoch');
+  if (!epochEl) {
+    epochEl = document.createElement('div');
+    epochEl.id = 'difficulty-epoch';
+    epochEl.className = 'value';
+    epochEl.style.textAlign = 'center';
+    card.appendChild(epochEl);
+  }
+  if (typeof GS.diffEpoch === 'number') {
+    epochEl.textContent = 'Epoch ' + GS.diffEpoch.toLocaleString();
+  } else {
+    epochEl.textContent = 'Epoch —';
+  }
+
+  // Difficulty % line
+  let dPctEl = document.getElementById('difficulty-pct-line');
+  if (!dPctEl) {
+    dPctEl = document.createElement('div');
+    dPctEl.id = 'difficulty-pct-line';
+    dPctEl.className = 'sub';
+    dPctEl.style.textAlign = 'center';
+    card.appendChild(dPctEl);
+  }
+  const dCh = (typeof GS.difficultyChange === 'number') ? GS.difficultyChange : null;
+  if (dCh != null) {
+    const up = dCh > 0, down = dCh < 0;
+    const arrow = up ? '▲' : (down ? '▼' : '◆');
+    const pct = Math.abs(dCh).toFixed(2) + '%';
+    const color = up ? 'var(--ok)' : (down ? 'var(--bad)' : 'var(--muted)');
+    dPctEl.innerHTML = `<span class="d-arrow" style="color:${color}">${arrow}${pct}</span>`;
+  } else {
+    dPctEl.textContent = '';
+  }
+
+  // Bottom row: "# Days since" (left) and "Next adj" (right)
+  let row = document.getElementById('difficulty-row');
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'difficulty-row';
+    row.style.display = 'grid';
+    row.style.gridTemplateColumns = '1fr 1fr';
+    row.style.marginTop = '6px';
+    card.appendChild(row);
+  }
+  let daysEl = document.getElementById('difficulty-days');
+  if (!daysEl) {
+    daysEl = document.createElement('div');
+    daysEl.id = 'difficulty-days';
+    daysEl.className = 'sub';
+    daysEl.style.textAlign = 'left';
+    row.appendChild(daysEl);
+  }
+  let nextEl = document.getElementById('difficulty-next-date');
+  if (!nextEl) {
+    nextEl = document.createElement('div');
+    nextEl.id = 'difficulty-next-date';
+    nextEl.className = 'sub';
+    nextEl.style.textAlign = 'right';
+    row.appendChild(nextEl);
+  }
+
+  if (typeof GS.difficultyDaysAgo === 'number' && isFinite(GS.difficultyDaysAgo)) {
+    daysEl.textContent = '# Days since: ' + GS.difficultyDaysAgo + 'd';
+  } else {
+    daysEl.textContent = '# Days since: —';
+  }
+  nextEl.textContent = 'Next adj: ' + (GS.nextAdjDate || '—');
+
+}
+/* === /CANONICAL OVERRIDES === */
+</script>
 </body>
 </html>
 
