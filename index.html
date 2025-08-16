@@ -71,7 +71,7 @@
     .title{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px}
     .title h3{margin:0; font-size:14px; text-transform:uppercase; letter-spacing:1.5px; color:#cbd5e1}
     .value{font-size:32px; font-weight:700; line-height:1}
-    .sub{font-size:12px; color:var(--muted)}
+    .sub{font-size:14px; color:var(--muted)}
     .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
     .pill{border:1px solid #243142; padding:6px 10px; border-radius:999px; font-size:12px; color:#cbd5e1}
     .spark{height:36px; width:100%;}
@@ -82,6 +82,17 @@
     /* Use opposite accent for price sparkline and miner name */
     #card-price .spark polyline{stroke:var(--accent-alt)}
     #miner.accent{color:var(--accent-alt); filter: drop-shadow(0 0 12px var(--glow-alt-color));}
+
+    /* Price per satoshi */
+    .sats-per-usd {
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      filter: drop-shadow(0 0 6px var(--glow-color));
+      margin-top: 12px;
+      display: block;
+    }
 
     /* Circular arc gauge */
     .gauge{width:120px; height:120px; position:relative}
@@ -102,8 +113,6 @@
     .barlbl{font-size:10px; color:var(--muted); margin-top:4px; line-height:1}
     .bars .bar{width:100%; background:linear-gradient(180deg, var(--bar1), var(--bar2));
       filter:var(--glow); border-radius:6px 6px 2px 2px; border:1px solid #1f2a37}
-    
-    
     
 
     /* Footer wide cards */
@@ -146,9 +155,11 @@
       <!-- BTC PRICE CARD -->
       <section class="card col-4" id="card-price">
         <div class="title"><h3>BTC / USD</h3><span class="pill" id="price-change">24h: --</span></div>
-        <div class="value" id="price">$--</div>
-        <div class="sub" id="price-sub">CAD est: --  ·  Last update --</div>
+        <div class="value" id="price" style="margin-bottom:10px;">$--</div>
+        <div class="sub" id="price-sub" style="margin-bottom:20px;">CAD est: --  ·  Last update --</div>
         <div class="spark" id="sparkline"></div>
+        <div class="sub sats-per-usd" id="sats-per-usd">— SATS / $1 USD</div>
+        <div class="sub" id="sats-per-cad">— SATS / $1 CAD</div>
       </section>
 
       <!-- BLOCK HEIGHT & MINER -->
@@ -190,11 +201,10 @@
       </section>
 
       <!-- HASHRATE / DIFFICULTY SNAPSHOT -->
-      <section class="card col-3">
+      <section class="card col-3" id="card-hashrate">
         <div class="title"><h3>Hashrate</h3><span class="pill">est</span></div>
         <div class="value" id="hashrate">— EH/s</div>
-        <div class="sub">Diff adj in <span id="diff-days">—</span> days</div>
-      </section>
+</section>
 
       <!-- DOMINANCE / MARKET CAP SNAPSHOT -->
       <section class="card col-3">
@@ -320,8 +330,11 @@ const S = {
       miner: null,
       intervals: [],
       fees: {low:4, med:7, high:15, vmb: 85, backlogTx: 178_000, capacityPct: 35},
-      hashrate: 612,
-      diffDays: 9,
+      hashrate: null,
+      hashrate24hrChange: null,
+      difficulty: null,
+      difficultyChange: null,
+      difficultyDaysAgo: null,
       dominance: 54.2,
       marketCap: 1.33,
       chart24: Array.from({length: 96}, (_,i)=> 66800 + Math.sin(i/8)*400 + (Math.random()-0.5)*140),
@@ -336,7 +349,9 @@ const S = {
     };
 
     // ===== HELPER RENDERERS =====
-    // ===== FETCHERS (Price + 24h chart) =====
+
+
+    // ===== FETCHERS (Price + 24h change) =====
 let tPrice = null, tChart = null, tBlock = null, tBlockAge = null;
 
 async function fetchPriceAndChange(){
@@ -354,7 +369,7 @@ async function fetchPriceAndChange(){
     console.warn('[price] fetch failed:', err);
   }
 }
-
+    //Fetch chart data for the last 24 hours
 async function fetchChart24h(){
   try{
     const r = await fetch(API.chart24h, { headers: { 'accept':'application/json' }});
@@ -453,7 +468,7 @@ async function fetchLatestBlocks(){
     console.warn('[blocks] fetch failed:', err);
   }
 }
-
+      // Fetch Miner Name
 async function fetchMinerFromExtras(height, hash){
   try{
     if(!API.blocksExtras) return; // disabled by default (404 on public mempool.space)
@@ -545,6 +560,77 @@ function decodeNextIntervalMiner(){
   }).catch(()=> setTimeout(decodeNextIntervalMiner, 400));
 }
 
+
+// Fetch mempool/fee data from mempool.space
+async function fetchMempoolFees() {
+  try {
+    // Fetch fee recommendations
+    const rFees = await fetch('https://mempool.space/api/v1/fees/recommended', { headers: { accept: 'application/json' } });
+    if (!rFees.ok) throw new Error('Fee API error');
+    const fees = await rFees.json();
+
+    // Fetch mempool info
+    const rMempool = await fetch('https://mempool.space/api/mempool', { headers: { accept: 'application/json' } });
+    if (!rMempool.ok) throw new Error('Mempool API error');
+    const mempool = await rMempool.json();
+
+    // Update S.fees with live data
+    S.fees.low = fees.minimumFee || fees.hourFee || null;
+    S.fees.med = fees.halfHourFee || null;
+    S.fees.high = fees.fastestFee || null;
+    S.fees.vmb = mempool.vsize ? Math.round(mempool.vsize / 1e6 * 4) / 4 : null; // vMB, rounded to nearest 0.25
+    S.fees.backlogTx = mempool.count || null;
+    S.fees.capacityPct = mempool.vsize ? Math.round((mempool.vsize / 300_000_000) * 100) : null; // 300M vbytes = 300 vMB
+
+    renderMempool();
+  } catch (e) {
+    console.warn('[mempool/fees] fetch failed:', e);
+  }
+}
+
+// Fetch Hashrate and Difficulty
+async function fetchHashrateAndDifficulty() {
+  try {
+    // Fetch hashrate (returns { avgHashrate: number, percentChange24h: number })
+    const rHash = await fetch('https://mempool.space/api/v1/mining/hashrate/3d');
+    const hashData = await rHash.json();
+
+    // Fetch difficulty adjustment info
+    const rDiff = await fetch('https://mempool.space/api/v1/difficulty-adjustment');
+    const diffData = await rDiff.json();
+
+    // Update state
+    S.hashrate = hashData.avgHashrate ?? null;
+    S.hashrate24hChange = hashData.percentChange24h ?? null;
+    S.difficulty = diffData.currentDifficulty ?? null;
+    S.difficultyChange = diffData.difficultyChange ?? null;
+    S.difficultyDaysAgo = diffData.daysSinceAdjustment ?? null;
+
+    
+    // Compute "last adjustment" date label (e.g., "Aug 5")
+    if (S.difficultyDaysAgo != null) {
+      const ms = Date.now() - S.difficultyDaysAgo * 86400 * 1000;
+      S.difficultyLastDate = new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } else {
+      S.difficultyLastDate = null;
+    }
+
+    // Optional: keep a "days until next adjustment" value if the API exposes it
+    const remainingSec = diffData.remainingTime ?? diffData.remaining_time ?? null;
+    if (typeof remainingSec === 'number') {
+      S.diffDays = Math.max(0, Math.round(remainingSec / 86400));
+    } else if ('daysUntilAdjustment' in diffData) {
+      S.diffDays = diffData.daysUntilAdjustment;
+    } else {
+      S.diffDays = null;
+    }
+renderHashMarket();
+  } catch (e) {
+    console.warn('[hashrate/difficulty] fetch failed:', e);
+  }
+}
+
+
 // Build intervals + labels from the cached block list (newest→oldest in _blocksCache)
 function rebuildFromCache(){
   const arr = Array.isArray(S._blocksCache) ? S._blocksCache : [];
@@ -628,7 +714,21 @@ function renderPrice(){
       <polyline points="${pts}" stroke="var(--accent)" stroke-width="3" fill="none" />
     </svg>`;
   }
+  if (S.priceUSD && S.priceUSD > 0) {
+    const satsPerUsd = Math.floor(100000000 / S.priceUSD);
+    $('#sats-per-usd').textContent = satsPerUsd.toLocaleString() + ' SATS / $1 USD';
+    if (S.priceCAD && S.priceCAD > 0) {
+      const satsPerCad = Math.floor(100000000 / S.priceCAD);
+      $('#sats-per-cad').textContent = satsPerCad.toLocaleString() + ' SATS / $1 CAD';
+    } else {
+      $('#sats-per-cad').textContent = '— SATS / $1 CAD';
+    }
+  } else {
+    $('#sats-per-usd').textContent = '— SATS / $1 USD';
+    $('#sats-per-cad').textContent = '— SATS / $1 CAD';
+  }
 }
+
 
 function renderBlock(){
   if (typeof S.blockHeight === 'number' && S.blockHeight > 0) {
@@ -637,7 +737,7 @@ function renderBlock(){
     $('#block-height').textContent = 'Block —';
   }
   if (typeof S.blockAgeMin === 'number' && S.blockAgeMin >= 0) {
-    $('#block-age').textContent = `age ${S.blockAgeMin}m`;
+    $('#block-age').textContent = `mined ${S.blockAgeMin}min ago`;
   } else {
     $('#block-age').textContent = 'age —';
   }
@@ -681,18 +781,101 @@ function renderMempool(){
   $('#fee-med').textContent = S.fees.med ?? '—';
   $('#fee-high').textContent = S.fees.high ?? '—';
   $('#vmb').textContent = S.fees.vmb ?? '—';
-  $('#tx-backlog').textContent = S.fees.backlogTx ? fmt(S.fees.backlogTx) + ' tx' : '—';
+  $('#tx-backlog').textContent = S.fees.backlogTx ? fmt(S.fees.backlogTx) + ' TXs' : '—';
   const pct = Math.max(0, Math.min(100, S.fees.capacityPct||0));
   const gauge = $('#mempool-gauge');
   gauge.style.setProperty('--pct', pct+'%');
   $('#gauge-pct').textContent = pct + '%';
 }
 
+
 function renderHashMarket(){
-  $('#hashrate').textContent = (S.hashrate? fmt(S.hashrate): '—') + ' EH/s';
-  $('#diff-days').textContent = S.diffDays ?? '—';
-  $('#dominance').textContent = (S.dominance? S.dominance.toFixed(1)+'% dom' : '—% dom');
-  $('#market-cap').textContent = S.marketCap? '$'+S.marketCap.toFixed(2)+'T' : '—';
+  // Big hashrate number (center)
+  const valEl = document.getElementById('hashrate');
+  valEl.textContent = (S.hashrate ? fmt(S.hashrate) : '—') + ' EH/s';
+
+  // Ensure a left+center layout wrapper exists
+  const card = valEl.closest('.card');
+  let layout = document.getElementById('hashrate-layout');
+  if (!layout) {
+    layout = document.createElement('div');
+    layout.id = 'hashrate-layout';
+    layout.style.display = 'grid';
+    layout.style.gridTemplateColumns = 'auto 1fr'; // left mini-stack + centered value
+    layout.style.alignItems = 'center';
+    layout.style.columnGap = '12px';
+    // Insert before the current hashrate node and move the value inside
+    card.insertBefore(layout, valEl);
+    layout.appendChild(valEl);
+  }
+
+  // Build (or get) the left mini-stack
+  let left = document.getElementById('difficulty-left');
+  if (!left) {
+    left = document.createElement('div');
+    left.id = 'difficulty-left';
+    left.style.textAlign = 'right';
+    left.style.minWidth = '110px';
+
+    const lastEl = document.createElement('div');
+    lastEl.id = 'difficulty-last-date';
+    lastEl.className = 'sub';
+
+    const pctEl = document.createElement('div');
+    pctEl.id = 'difficulty-change';
+    pctEl.className = 'sub';
+
+    left.appendChild(lastEl);
+    left.appendChild(pctEl);
+    layout.insertBefore(left, valEl);
+  }
+
+  // Line 1: "Last adj: <date>" (or "Xd ago" fallback)
+  const lastEl = document.getElementById('difficulty-last-date');
+  if (S.difficultyLastDate) {
+    lastEl.textContent = 'Last adj: ' + S.difficultyLastDate;
+  } else if (S.difficultyDaysAgo != null) {
+    lastEl.textContent = `Last adj: ${S.difficultyDaysAgo}d ago`;
+  } else {
+    lastEl.textContent = 'Last adj: —';
+  }
+
+  // Line 2: difficulty % change (green/up or red/down)
+  const pctEl = document.getElementById('difficulty-change');
+  const dCh = (typeof S.difficultyChange === 'number') ? S.difficultyChange : null;
+  if (dCh != null) {
+    pctEl.textContent = (dCh > 0 ? '+' : '') + dCh.toFixed(2) + '%';
+    pctEl.style.color = dCh > 0 ? 'var(--ok)' : (dCh < 0 ? 'var(--bad)' : 'var(--muted)');
+  } else {
+    pctEl.textContent = '';
+    pctEl.style.color = 'var(--muted)';
+  }
+
+  // Optional: show hashrate 24h change directly under the big number
+  let hrChangeEl = document.getElementById('hashrate-change');
+  if (!hrChangeEl) {
+    hrChangeEl = document.createElement('div');
+    hrChangeEl.id = 'hashrate-change';
+    hrChangeEl.className = 'sub';
+    valEl.parentNode.insertBefore(hrChangeEl, valEl.nextSibling);
+  }
+  const hrChange = (typeof S.hashrate24hChange === 'number') ? S.hashrate24hChange : null;
+  if (hrChange != null) {
+    hrChangeEl.textContent = (hrChange > 0 ? '+' : '') + hrChange.toFixed(2) + '% (24h)';
+    hrChangeEl.style.color = hrChange > 0 ? 'var(--ok)' : (hrChange < 0 ? 'var(--bad)' : 'var(--muted)');
+  } else {
+    hrChangeEl.textContent = '';
+  }
+
+  // Safely update optional "diff-days" elsewhere if present
+  const dd = document.getElementById('diff-days');
+  if (dd) dd.textContent = S.diffDays ?? '—';
+
+  // Market snapshot (unchanged)
+  const domEl = document.getElementById('dominance');
+  if (domEl) domEl.textContent = (S.dominance ? S.dominance.toFixed(1) + '% dom' : '—% dom');
+  const mcEl = document.getElementById('market-cap');
+  if (mcEl) mcEl.textContent = S.marketCap ? '$' + S.marketCap.toFixed(2) + 'T' : '—';
 }
 
 function render24hChart(){
@@ -838,7 +1021,7 @@ function tickBlockAge(){
     if (mins !== S.blockAgeMin) {
       S.blockAgeMin = mins;
       const el = document.getElementById('block-age');
-      if (el) el.textContent = `age ${S.blockAgeMin}m`;
+      if (el) el.textContent = `mined ${S.blockAgeMin}min ago`;
     }
   }
 }
@@ -856,6 +1039,10 @@ function startPriceLoop(){
   fetchChart24h();
   tPrice = setInterval(fetchPriceAndChange, 30_000);
   tChart = setInterval(fetchChart24h, 120_000);
+  fetchMempoolFees();
+  setInterval(fetchMempoolFees, 30000); // update every 30 seconds
+  fetchHashrateAndDifficulty();
+  setInterval(fetchHashrateAndDifficulty, 30000); // update every 30 seconds
 }
 
 function renderAll(){
