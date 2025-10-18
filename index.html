@@ -248,6 +248,7 @@ const API = {
   blocks: 'https://mempool.space/api/blocks?limit=13',
   blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
 };
+const SATONAK = 'https://satonak.bitcoinmanor.com';
 const API_BASE = 'https://mempool.space/api';
 
 // ===== Miner identification (fallback via coinbase tag) =====
@@ -356,19 +357,30 @@ let tPrice = null, tChart = null, tBlock = null, tBlockAge = null;
 
 async function fetchPriceAndChange(){
   try{
-    const r = await fetch(API.price, { headers: { 'accept':'application/json' }});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const j = await r.json();
-    const b = j.bitcoin;
-    if(!b) throw new Error('No bitcoin object');
-    S.priceUSD = b.usd;
-    S.priceCAD = b.cad;
-    S.change24 = b.usd_24h_change; // percent
+    // Fetch BTC price in USD from SatoNak
+    const rUSD = await fetch(`${SATONAK}/v1/price?fiat=USD`, { headers: { accept:'application/json' }});
+    if(!rUSD.ok) throw new Error('USD HTTP '+rUSD.status);
+    const usd = await rUSD.json();
+
+    // Fetch BTC price in CAD from SatoNak (for “CAD est” + sats/$CAD)
+    const rCAD = await fetch(`${SATONAK}/v1/price?fiat=CAD`, { headers: { accept:'application/json' }});
+    if(!rCAD.ok) throw new Error('CAD HTTP '+rCAD.status);
+    const cad = await rCAD.json();
+
+    // Map into your state (S)
+    S.priceUSD = Number(usd?.value) || null;
+    S.priceCAD = Number(cad?.value) || null;
+
+    // SatoNak doesn’t return 24h % yet; show “—” for now
+    S.change24 = null;
+
+    // Render the price card + sats/$
     renderPrice();
   }catch(err){
-    console.warn('[price] fetch failed:', err);
+    console.warn('[price from SatoNak] fetch failed:', err);
   }
 }
+
     //Fetch chart data for the last 24 hours
 async function fetchChart24h(){
   try{
