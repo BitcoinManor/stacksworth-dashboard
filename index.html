@@ -250,6 +250,7 @@ const API = {
 };
 const SATONAK = 'https://satonak.bitcoinmanor.com';
 const API_BASE = 'https://mempool.space/api';
+API.miner = 'https://satonak.bitcoinmanor.com/v1/miner';    
 
 // ===== Miner identification (fallback via coinbase tag) =====
 const POOL_TAGS = [
@@ -427,14 +428,26 @@ async function fetchLatestBlocks(){
     }
     S.blockTsSec = (typeof ts === 'number') ? ts : null;
     tickBlockAge();
+
+    
+    // Prefer SatoNak for miner first; then extras/coinbase ONLY if still unknown
+fetchMinerFromSatoNak().finally(()=>{
+  if (!S.miner) {
     // Try to get miner/pool name from extras if present
-    const poolName = latest?.extras?.pool?.name || latest?.extras?.pool || latest?.pool?.name || null;
+    const poolName =
+      latest?.extras?.pool?.name || latest?.extras?.pool ||
+      latest?.pool?.name || null;
+
     if (poolName) {
       S.miner = poolName;
-    } else {
-      // Fallback: decode coinbase tag (robust + public API)
-      if (S.blockHash) fetchMinerFromCoinbase(S.blockHash);
+      renderBlock();
+    } else if (S.blockHash) {
+      // Fallback: decode coinbase tag
+      fetchMinerFromCoinbase(S.blockHash);
     }
+  }
+});
+
     // intervals between consecutive blocks (minutes)
     const times = arr.map(b => (b.timestamp ?? b.time)).filter(t => typeof t === 'number');
     const ivals = [];
@@ -465,10 +478,10 @@ async function fetchLatestBlocks(){
       S.intervalHeights = heights.slice(0,12).reverse();
       renderBlock();
       renderIntervalCanvas();
-      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
-  // Market/Dominance loop
-  fetchMarketMeta();
-  setInterval(fetchMarketMeta, 120000);
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21);
+
+                                    
+  
 }
       decodeNextIntervalMiner();
     } else {
@@ -476,10 +489,8 @@ async function fetchLatestBlocks(){
       renderBlock();
       renderIntervalCanvas();
       if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
-  // Market/Dominance loop
-  fetchMarketMeta();
-  setInterval(fetchMarketMeta, 120000);
-}
+ 
+      }
       if (S.intervalMinersFull && S.intervalMinerHashes && S.intervalMinersFull.some((n,i)=> !n && S.intervalMinerHashes[i])) {
         decodeNextIntervalMiner();
       }
@@ -488,6 +499,26 @@ async function fetchLatestBlocks(){
     console.warn('[blocks] fetch failed:', err);
   }
 }
+
+    //fetch miner name from Satonak
+async function fetchMinerFromSatoNak(){
+  try{
+    const r = await fetch(API.miner, { headers: { accept: 'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const name = j && typeof j.pool === 'string' ? j.pool : null;
+    if(name && name !== 'Unknown'){
+      S.miner = name;
+      renderBlock();
+      return name;
+    }
+  }catch(e){
+    console.warn('[satonak/miner] failed:', e);
+  }
+  return null;
+}
+
+    
       // Fetch Miner Name
 async function fetchMinerFromExtras(height, hash){
   try{
@@ -1105,6 +1136,7 @@ function tickBlockAge(){
   }
 }
 
+// ===== LOOPS =====    
 function startBlockLoop(){
   fetchLatestBlocks();
   clearInterval(tBlock); clearInterval(tBlockAge);
@@ -1124,40 +1156,7 @@ function startPriceLoop(){
   setInterval(fetchHashrateAndDifficulty, 30000); // update every 30 seconds
 }
 
-// Normalize various hashrate units to EH/s
-function toEH(value, unit) {
-  const n = Number(value);
-  if (!isFinite(n)) return null;
-  const u = (unit || '').toLowerCase();
-  if (u.includes('eh')) return n;         // EH/s
-  if (u.includes('ph')) return n / 1e3;   // PH/s -> EH/s
-  if (u.includes('th')) return n / 1e6;   // TH/s -> EH/s
-  if (u.includes('h/s')) return n / 1e18; // H/s  -> EH/s
-  return n; // assume EH/s if unspecified
-}
-
-function extractHashrate(d) {
-  if (!d) return null;
-  const pick = (o) =>
-    o.avgHashrate ?? o.averageHashrate ??
-    o.currentHashrate ?? o.current_hashrate ??
-    o.hashrate ?? o.avg_hashrate ?? null;
-
-  if (Array.isArray(d)) {
-    for (let i = d.length - 1; i >= 0; i--) {
-      const v = pick(d[i]);
-      if (isFinite(Number(v))) return Number(v);
-    }
-    return null;
-  }
-  if (Array.isArray(d.series)) return extractHashrate(d.series);
-
-  const v = pick(d);
-  return isFinite(Number(v)) ? Number(v) : null;
-}
-
-
-
+    // Render all dynamic components
 function renderAll(){
       renderPrice();
       renderBlock();
@@ -1244,11 +1243,16 @@ function renderAll(){
     })();
 
     // ===== BOOTSTRAP =====
-    setAccent('#ffa600');      // default accent (amber)
-    renderAll();               // first paint
-    startPriceLoop();          // price + 24h chart loops
-    startBlockLoop();          // latest block + age ticker
-    ensureVisualizerHorizon(21); 
+  setAccent('#ffa600');      // default accent (amber)
+  renderAll();               // first paint
+  startPriceLoop();          // price + 24h chart loops
+  startBlockLoop();          // latest block + age ticker
+  ensureVisualizerHorizon(21); 
+
+    // NEW: pull miner immediately and on a short cadence
+  fetchMinerFromSatoNak();
+  setInterval(fetchMinerFromSatoNak, 30000);
+
   // Market/Dominance loop
   fetchMarketMeta();
   setInterval(fetchMarketMeta, 120000);
