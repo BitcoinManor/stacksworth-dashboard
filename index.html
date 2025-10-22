@@ -240,7 +240,7 @@
 const API = {
   price: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true',
   chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
-  blocks: `${SATONAK}/v1/blocks?limit=13`,
+  blocks: `${SATONAK}/v1/blocks?limit=13`, // fetch latest 13 blocks
   blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
 };
 const SATONAK = 'https://satonak.bitcoinmanor.com';
