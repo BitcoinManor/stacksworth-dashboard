@@ -432,20 +432,9 @@ S.blockHash = latest.id || null;             // SatoNak uses "id"
     
     // Prefer SatoNak for miner first; then extras/coinbase ONLY if still unknown
 fetchMinerFromSatoNak().finally(()=>{
-  if (!S.miner) {
-    // Try to get miner/pool name from extras if present
-    const poolName =
-      latest?.extras?.pool?.name || latest?.extras?.pool ||
-      latest?.pool?.name || null;
-
-    if (poolName) {
-      S.miner = poolName;
-      renderBlock();
-    } else if (S.blockHash) {
-      // Fallback: decode coinbase tag
+  if (!S.miner && S.blockHash) {
       fetchMinerFromCoinbase(S.blockHash);
     }
-  }
 });
 
     // intervals between consecutive blocks (minutes)
