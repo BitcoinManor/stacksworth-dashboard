@@ -234,18 +234,21 @@
   </main>
 
   <script>
-   
 
-    // ===== API CONFIG (CoinGecko) =====
-const API = {
-  price: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true',
-  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
-  blocks: `${SATONAK}/v1/blocks?limit=13`, // fetch latest 13 blocks
-  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
-};
+
 const SATONAK = 'https://satonak.bitcoinmanor.com';
 const API_BASE = 'https://mempool.space/api';
-API.miner = 'https://satonak.bitcoinmanor.com/v1/miner';    
+ 
+
+    // ===== API CONFIG  =====
+const API = {
+  price: `${SATONAK}/v1/price`, 
+  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
+  blocks: `${SATONAK}/v1/blocks?limit=13`, // fetch latest 13 blocks
+  miner: `${SATONAK}/v1/miner`,          // fetch latest block miner info
+  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
+};
+ 
 
 // ===== Miner identification (fallback via coinbase tag) =====
 const POOL_TAGS = [
@@ -677,20 +680,27 @@ async function fetchOlderBlocksPage(){
     const tail = cache[cache.length-1];
     const startH = tail?.height ? (tail.height - 1) : null;
     if (startH == null) return false;
-    const url = `${API_BASE}/blocks/${startH}`;
+
+    const url = `${SATONAK}/v1/blocks?limit=10&before_height=${startH}`;
     const r = await fetch(url, { headers: { accept:'application/json' }});
     if(!r.ok) return false;
-    const older = await r.json();
-    if(!Array.isArray(older) || !older.length) return false;
-    cache.push(...older);
+
+    const j = await r.json();
+    const older = Array.isArray(j?.blocks) ? j.blocks : (Array.isArray(j) ? j : []);
+    if(!older.length) return false;
+
+    cache.push(...older);              // keep newest→oldest order
     S._blocksCache = cache;
     rebuildFromCache();
     renderIntervalCanvas();
-    renderIntervalCanvas();
     decodeNextIntervalMiner();
     return true;
-  }catch(e){ console.warn('[older] fetch failed:', e); return false; }
+  }catch(e){
+    console.warn('[older] fetch failed:', e);
+    return false;
+  }
 }
+
 
 // Ensure we have at least N intervals for the visualizer by paging older blocks on demand
 async function ensureVisualizerHorizon(n=21){
