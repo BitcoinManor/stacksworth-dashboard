@@ -234,22 +234,26 @@
   </main>
 
   <script>
-    // ===== MOCK DATA LAYER =====
-    // Replace with real fetches later. Endpoints to wire:
-    // - Price: https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true
-    // - 24h chart: https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1
-    // - Mempool/fees: https://mempool.space/api/v1/fees/recommended and /api/mempool
-    // - Latest block: https://mempool.space/api/blocks and /block/{hash}/txs/0 to derive miner (coinbase tag)
 
-    // ===== API CONFIG (CoinGecko) =====
-const API = {
-  price: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true',
-  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
-  blocks: 'https://mempool.space/api/blocks?limit=13',
-  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
-};
+
 const SATONAK = 'https://satonak.bitcoinmanor.com';
 const API_BASE = 'https://mempool.space/api';
+ 
+
+    // ===== API CONFIG  =====
+const API = {
+  price: `${SATONAK}/v1/price`, 
+  chart24h: 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1',
+  blocks: `${SATONAK}/v1/blocks?limit=13`, // fetch latest 13 blocks
+  miner: `${SATONAK}/v1/miner`,          // fetch latest block miner info
+  blocksExtras: null // optional on some self-hosted instances; public mempool.space returns 404
+};
+<<<<<<< HEAD
+const SATONAK = 'https://satonak.bitcoinmanor.com';
+const API_BASE = 'https://mempool.space/api';
+=======
+ 
+>>>>>>> 5bd5e4aa6c2b4e7e216852f771c374fb63fc96f5
 
 // ===== Miner identification (fallback via coinbase tag) =====
 const POOL_TAGS = [
@@ -414,27 +418,30 @@ async function fetchLatestBlocks(){
   try{
     const r = await fetch(API.blocks, { headers: { 'accept':'application/json' }});
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const arr = await r.json();
-    S._blocksCache = Array.isArray(arr) ? arr.slice() : [];
-    if(!Array.isArray(arr) || arr.length === 0) return;
-    const latest = arr[0];
-    const ts = (latest.timestamp ?? latest.time); // mempool.space uses `timestamp`
-    const nowSec = Math.floor(Date.now()/1000);
-    S.blockHeight = latest.height || null;
-    S.blockHash = latest.id || latest.hash || null;
+    const j = await r.json();
+const arr = Array.isArray(j?.blocks) ? j.blocks : (Array.isArray(j) ? j : []);
+S._blocksCache = arr.slice();
+if (arr.length === 0) return;
+
+const latest = arr[0];
+const ts = latest.timestamp;                 // SatoNak field
+S.blockHeight = latest.height || null;
+S.blockHash = latest.id || null;             // SatoNak uses "id"
+
     if(typeof ts === 'number') {
       S.blockAgeMin = Math.max(0, Math.floor((nowSec - ts)/60));
     }
     S.blockTsSec = (typeof ts === 'number') ? ts : null;
     tickBlockAge();
-    // Try to get miner/pool name from extras if present
-    const poolName = latest?.extras?.pool?.name || latest?.extras?.pool || latest?.pool?.name || null;
-    if (poolName) {
-      S.miner = poolName;
-    } else {
-      // Fallback: decode coinbase tag (robust + public API)
-      if (S.blockHash) fetchMinerFromCoinbase(S.blockHash);
+
+    
+    // Prefer SatoNak for miner first; then extras/coinbase ONLY if still unknown
+fetchMinerFromSatoNak().finally(()=>{
+  if (!S.miner && S.blockHash) {
+      fetchMinerFromCoinbase(S.blockHash);
     }
+});
+
     // intervals between consecutive blocks (minutes)
     const times = arr.map(b => (b.timestamp ?? b.time)).filter(t => typeof t === 'number');
     const ivals = [];
@@ -465,10 +472,10 @@ async function fetchLatestBlocks(){
       S.intervalHeights = heights.slice(0,12).reverse();
       renderBlock();
       renderIntervalCanvas();
-      if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
-  // Market/Dominance loop
-  fetchMarketMeta();
-  setInterval(fetchMarketMeta, 120000);
+      if (S.intervals.length < 21) { ensureVisualizerHorizon(21);
+
+                                    
+  
 }
       decodeNextIntervalMiner();
     } else {
@@ -476,10 +483,8 @@ async function fetchLatestBlocks(){
       renderBlock();
       renderIntervalCanvas();
       if (S.intervals.length < 21) { ensureVisualizerHorizon(21); 
-  // Market/Dominance loop
-  fetchMarketMeta();
-  setInterval(fetchMarketMeta, 120000);
-}
+ 
+      }
       if (S.intervalMinersFull && S.intervalMinerHashes && S.intervalMinersFull.some((n,i)=> !n && S.intervalMinerHashes[i])) {
         decodeNextIntervalMiner();
       }
@@ -488,6 +493,26 @@ async function fetchLatestBlocks(){
     console.warn('[blocks] fetch failed:', err);
   }
 }
+
+    //fetch miner name from Satonak
+async function fetchMinerFromSatoNak(){
+  try{
+    const r = await fetch(API.miner, { headers: { accept: 'application/json' }});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const name = j && typeof j.pool === 'string' ? j.pool : null;
+    if(name && name !== 'Unknown'){
+      S.miner = name;
+      renderBlock();
+      return name;
+    }
+  }catch(e){
+    console.warn('[satonak/miner] failed:', e);
+  }
+  return null;
+}
+
+    
       // Fetch Miner Name
 async function fetchMinerFromExtras(height, hash){
   try{
@@ -625,10 +650,11 @@ function rebuildFromCache(){
   const miners = []; const hashes = []; const heights = [];
   for (let i=0;i<ivals.length;i++){
     const blk = arr[i];
-    const nm = blk?.extras?.pool?.name || blk?.extras?.pool || null;
+    const nm = blk?.miner?.name || null;         // SatoNak provides miner.name
     miners.push(nm || null);
-    hashes.push(blk?.id || blk?.hash || null);
+    hashes.push(blk?.id || null);                // "id" only
     heights.push(blk?.height || null);
+
   }
   // Oldest → newest for UI
   S.intervals = ivals.slice().reverse();
@@ -648,20 +674,27 @@ async function fetchOlderBlocksPage(){
     const tail = cache[cache.length-1];
     const startH = tail?.height ? (tail.height - 1) : null;
     if (startH == null) return false;
-    const url = `${API_BASE}/blocks/${startH}`;
+
+    const url = `${SATONAK}/v1/blocks?limit=10&before_height=${startH}`;
     const r = await fetch(url, { headers: { accept:'application/json' }});
     if(!r.ok) return false;
-    const older = await r.json();
-    if(!Array.isArray(older) || !older.length) return false;
-    cache.push(...older);
+
+    const j = await r.json();
+    const older = Array.isArray(j?.blocks) ? j.blocks : (Array.isArray(j) ? j : []);
+    if(!older.length) return false;
+
+    cache.push(...older);              // keep newest→oldest order
     S._blocksCache = cache;
     rebuildFromCache();
     renderIntervalCanvas();
-    renderIntervalCanvas();
     decodeNextIntervalMiner();
     return true;
-  }catch(e){ console.warn('[older] fetch failed:', e); return false; }
+  }catch(e){
+    console.warn('[older] fetch failed:', e);
+    return false;
+  }
 }
+
 
 // Ensure we have at least N intervals for the visualizer by paging older blocks on demand
 async function ensureVisualizerHorizon(n=21){
@@ -1105,6 +1138,7 @@ function tickBlockAge(){
   }
 }
 
+// ===== LOOPS =====    
 function startBlockLoop(){
   fetchLatestBlocks();
   clearInterval(tBlock); clearInterval(tBlockAge);
@@ -1124,40 +1158,7 @@ function startPriceLoop(){
   setInterval(fetchHashrateAndDifficulty, 30000); // update every 30 seconds
 }
 
-// Normalize various hashrate units to EH/s
-function toEH(value, unit) {
-  const n = Number(value);
-  if (!isFinite(n)) return null;
-  const u = (unit || '').toLowerCase();
-  if (u.includes('eh')) return n;         // EH/s
-  if (u.includes('ph')) return n / 1e3;   // PH/s -> EH/s
-  if (u.includes('th')) return n / 1e6;   // TH/s -> EH/s
-  if (u.includes('h/s')) return n / 1e18; // H/s  -> EH/s
-  return n; // assume EH/s if unspecified
-}
-
-function extractHashrate(d) {
-  if (!d) return null;
-  const pick = (o) =>
-    o.avgHashrate ?? o.averageHashrate ??
-    o.currentHashrate ?? o.current_hashrate ??
-    o.hashrate ?? o.avg_hashrate ?? null;
-
-  if (Array.isArray(d)) {
-    for (let i = d.length - 1; i >= 0; i--) {
-      const v = pick(d[i]);
-      if (isFinite(Number(v))) return Number(v);
-    }
-    return null;
-  }
-  if (Array.isArray(d.series)) return extractHashrate(d.series);
-
-  const v = pick(d);
-  return isFinite(Number(v)) ? Number(v) : null;
-}
-
-
-
+    // Render all dynamic components
 function renderAll(){
       renderPrice();
       renderBlock();
@@ -1244,11 +1245,16 @@ function renderAll(){
     })();
 
     // ===== BOOTSTRAP =====
-    setAccent('#ffa600');      // default accent (amber)
-    renderAll();               // first paint
-    startPriceLoop();          // price + 24h chart loops
-    startBlockLoop();          // latest block + age ticker
-    ensureVisualizerHorizon(21); 
+  setAccent('#ffa600');      // default accent (amber)
+  renderAll();               // first paint
+  startPriceLoop();          // price + 24h chart loops
+  startBlockLoop();          // latest block + age ticker
+  ensureVisualizerHorizon(21); 
+
+    // NEW: pull miner immediately and on a short cadence
+  fetchMinerFromSatoNak();
+  setInterval(fetchMinerFromSatoNak, 30000);
+
   // Market/Dominance loop
   fetchMarketMeta();
   setInterval(fetchMarketMeta, 120000);
@@ -1592,4 +1598,3 @@ function renderHashMarket(){
 </script>
 </body>
 </html>
-
