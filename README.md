@@ -23,7 +23,13 @@ Not everyone can (or wants to) buy the hardware. This is the **public, browser-b
   - **Block Interval Visualizer** (10-minute target line)
   - **Theme toggle**, **responsive grid**, and mock data you can swap for APIs
 
-> Live data wiring comes next (CoinGecko + mempool.space). The HTML already includes stable element IDs and comments so integration is simple.
+> Live data wiring comes next using our very own API's
+> like these ones and more
+>  SATONAK API'S
+- - [`Satonak Price`](https://www.satonak.bitcoinmanor.com/api/price)
+  - - - [`Satonak Block Height`](https://www.satonak.bitcoinmanor.com/api/height)
+      -
+      - The HTML already includes stable element IDs and comments so integration is simple.
 
 ---
 
