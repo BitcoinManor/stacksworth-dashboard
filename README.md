@@ -115,6 +115,22 @@ chromium-browser --kiosk --incognito --noerrdialogs \
 
 ---
 
+
+## ⚡ SatoNak API's  ⚡
+
+- SATONAK API'S
+  - - - [`Satonak Price`](https://www.satonak.bitcoinmanor.com/api/price)
+  - - - [`Satonak Block Height`](https://www.satonak.bitcoinmanor.com/api/height)
+  - - - [`Satonak CAD Price`](https://satonak.bitcoinmanor.com/api/price?fiat=CAD)
+  - - - [`Satonak Fee`](https://satonak.bitcoinmanor.com/api/fee)
+  - - - [`Satonak Hashrate`](https://satonak.bitcoinmanor.com/api/hashrate)
+  - - - [`Satonak Circulating Supply`](https://satonak.bitcoinmanor.com/api/circsupply)
+  - - - [`Satonak Miner`](https://satonak.bitcoinmanor.com/api/miner)
+  - - - [`Satonak 24hr Price Chamge`](https://satonak.bitcoinmanor.com/api/change24h)
+  - - - [`Satonak EUR Price`](https://satonak.bitcoinmanor.com/api/price?fiat=EUR)
+     
+---        
+
 ## Contributing
 PRs welcome! Keep changes small and testable. If you’re adding APIs or presets, include a short note and a screenshot/gif.
 
