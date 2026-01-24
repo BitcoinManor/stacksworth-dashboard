@@ -28,6 +28,92 @@ Not everyone can (or wants to) buy the hardware. This is the **public, browser-b
 >  SATONAK API'S
 - - [`Satonak Price`](https://www.satonak.bitcoinmanor.com/api/price)
   - - - [`Satonak Block Height`](https://www.satonak.bitcoinmanor.com/api/height)
+     
+    - TH Matrix  
+**Open Source • Web Flashable • Bitcoin at a Glance**
+
+![STACKSWORTH Banner](https://github.com/BitcoinManor/STACKSWORTH_Matrix/raw/main/assets/stacksworth_banner.png)
+
+Welcome to **STACKSWORTH**, the future of open-source Bitcoin displays.  
+Watch Bitcoin's Pulse at a Glance in real time  — price, block height, mempool fees, sats/dollar and weather — all from a sleek, plug-and-play LED matrix 
+that’s built for Bitcoiners, by Bitcoiners.
+
+---
+
+## 🚀 Latest Firmware: v1.0.2
+
+🆕 MAC-based AP ID (e.g. `SW-MATRIX-E4E204`)  
+🌐 Matching ID in hotspot, HTML portal, and network list  
+🛠️ Improved UX for multi-device setups and flashing
+
+📦 [Download v1.0.2 ZIP](https://github.com/BitcoinManor/STACKSWORTH_MATRIX/releases/download/v1.0.2/STACKSWORTH_MATRIX_v1.0.2.zip)  
+📓 [See Changelog](https://github.com/BitcoinManor/STACKSWORTH_MATRIX/blob/main/CHANGELOG.md)
+
+---
+
+## 🚀 Quick Start
+
+- **🔌 Flash Instantly:**  
+  [StacksWorth Web Flasher →](https://bitcoinmanor.github.io/STACKSWORTH_WebFlasher) *(custom URL coming soon)*
+
+- **📦 Order Units or Kits:**  
+  [stacksworth.com](https://stacksworth.com)
+
+- **🛠 Full Source Code + Firmware:**  
+  [STACKSWORTH GitHub](https://github.com/BitcoinManor/STACKSWORTH_Matrix)
+
+- **🎉 Follow Us:**  
+  [Twitter/X](https://x.com/BitcoinManor) | [Instagram](https://www.instagram.com/bitcoinmanor/)
+
+---
+
+## 💡 What Is STACKSWORTH Matrix?
+
+The **STACKSWORTH Matrix** is a self-contained, open-source Bitcoin display system featuring:
+
+- 🧠 Real-time Bitcoin metrics
+- 🔥 Dual-row LED scrolling text
+- 🌐 Easy AP-mode configuration (WiFi, city, timezone)
+- 💻 Full Arduino-based firmware for developers
+- 🟩 Web flashable from any modern browser
+
+Built for signal, not noise.
+
+---
+
+## 🧱 Metrics Displayed
+
+- **💰 BTC Price (USD)** — via CoinGecko  
+- **📦 Block Height** — via Blockchain.info  
+- **🚦 Fee Rate (sat/vB)** — via Mempool.space  
+- **🌤 Local Weather + Temp** — via OpenWeatherMap  
+- **⏰ Time** — via NTP
+
+Future versions will include:
+- 🏷️ Miner Tag Detection  
+- 📶 MAC ID–based SSID Broadcasting  
+- 🎲 Weighted Animation Mode (Smash Buy Button)
+
+---
+
+## 🛠 Tech Stack
+
+- **Hardware:** ESP32 (NodeMCU or similar), 64x16 LED matrix
+- **Firmware:** Arduino/C++  
+- **Web Config:** SPIFFS + AsyncWebServer  
+- **APIs:**
+- We use our own SatoNak Server and thank the others below that we use for our backups
+- SATONAK API'S
+  - - - [`Satonak Price`](https://www.satonak.bitcoinmanor.com/api/price)
+  - - - [`Satonak Block Height`](https://www.satonak.bitcoinmanor.com/api/height)
+  - - - [`Satonak CAD Price`](https://satonak.bitcoinmanor.com/api/price?fiat=CAD)
+  - - - [`Satonak Fee`](https://satonak.bitcoinmanor.com/api/fee)
+  - - - [`Satonak Hashrate`](https://satonak.bitcoinmanor.com/api/hashrate)
+  - - - [`Satonak Circulating Supply`](https://satonak.bitcoinmanor.com/api/circsupply)
+  - - - [`Satonak Miner`](https://satonak.bitcoinmanor.com/api/miner)
+  - - - [`Satonak 24hr Price Chamge`](https://satonak.bitcoinmanor.com/api/change24h)
+  - - - [`Satonak EUR Price`](https://satonak.bitcoinmanor.com/api/price?fiat=EUR)
+        OTHER BACKUP
       -
       - The HTML already includes stable element IDs and comments so integration is simple.
 
