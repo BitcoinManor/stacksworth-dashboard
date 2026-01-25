@@ -57,7 +57,9 @@ that’s built for Bitcoiners, by Bitcoiners.
   [StacksWorth Web Flasher →](https://bitcoinmanor.github.io/STACKSWORTH_WebFlasher) *(custom URL coming soon)*
 
 - **📦 Order Units or Kits:**  
-  [stacksworth.com](https://stacksworth.com)
+  [stacksworth.com](https://stacksworth.com),
+  [Bitcoin Manor](https://BitcoinManor.com)
+  
 
 - **🛠 Full Source Code + Firmware:**  
   [STACKSWORTH GitHub](https://github.com/BitcoinManor/STACKSWORTH_Matrix)
