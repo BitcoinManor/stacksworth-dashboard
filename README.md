@@ -64,8 +64,16 @@ that’s built for Bitcoiners, by Bitcoiners.
 - **🛠 Full Source Code + Firmware:**  
   [STACKSWORTH GitHub](https://github.com/BitcoinManor/STACKSWORTH_Matrix)
 
-- **🎉 Follow Us:**  
-  [Twitter/X](https://x.com/BitcoinManor) | [Instagram](https://www.instagram.com/bitcoinmanor/)
+-🧡 Stacksworth & Bitcoin Manor
+This project is part of the STACKSWORTH ecosystem — handcrafted Bitcoin displays engineered for your home, workspace, studio, or node room.
+
+Follow the journey:
+
+❌ [X / Twitter:](https://x.com/stacksworth)
+X-[BitcoinManor](https://x.com/BitcoinManor)
+📸 [Instagram:](https://instagram.com/bitcoinmanor)
+🌐 Website: [STACKSWORTH:](//stacksworth.com)
+🌐 [Bitcoin Manor:]( https://bitcoinmanor.com)
 
 ---
 
