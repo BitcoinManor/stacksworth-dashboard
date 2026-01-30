@@ -140,7 +140,7 @@ Future versions will include:
 ---
 
 ## Wire it up (next step)
-Suggested data sources:
+Suggested data sources:We use our own SatoNak Server and thank the others below that we use for our backups
 - **Price + 24h chart**: CoinGecko  
   - `/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,cad&include_24hr_change=true`  
   - `/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1`
