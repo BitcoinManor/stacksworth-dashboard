@@ -1,4 +1,6 @@
 # StacksWorth Dashboard  
+is a project that stems from Blokdbit that turned into STACKSWORTH with the Matrix and Pulse as the two flagship models. This dashboard Displays the metrics that you will find on all our Stacksworth Models.
+Please let us know what you think 
 **Bitcoin’s Pulse at a Glance — a neon, LVGL-style web dashboard.**
 
 Born on **Matrix**, forged in **Spark (7")**, creating a **Pulse (5")**, pushing to the **Edge (7")**, and reaching **Infinity (10")**. This project mirrors our firmware UI with a cyberpunk feel: **price**, **block height**, **mempool & fee tiers**, and **miner tags** — at a glance.
