@@ -1,4 +1,11 @@
-# StacksWorth Dashboard  
+# ⚡ STACKSWORTH DASHBOARD  
+**Open Source • Web Flashable • Bitcoin Metrics Display • Bitcoin at a Glance**
+
+![STACKSWORTH Banner](https://github.com/BitcoinManor/STACKSWORTH_Matrix/raw/main/assets/stacksworth_banner.png)
+
+Welcome to **STACKSWORTH**, the future of open-source Bitcoin displays.  
+
+**This is Bitcoin’s Pulse, at a glance.**
 is a project that stems from Blokdbit that turned into STACKSWORTH with the Matrix and Pulse as the two flagship models. This dashboard Displays the metrics that you will find on all our Stacksworth Models.
 Please let us know what you think 
 **Bitcoin’s Pulse at a Glance — a neon, LVGL-style web dashboard.**
